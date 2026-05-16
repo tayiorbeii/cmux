@@ -108,6 +108,10 @@ enum KeyboardShortcutSettings {
         case toggleTerminalCopyMode
 
         // Panes / splits
+        case tmuxAwareFocusLeft
+        case tmuxAwareFocusRight
+        case tmuxAwareFocusUp
+        case tmuxAwareFocusDown
         case focusLeft
         case focusRight
         case focusUp
@@ -189,6 +193,10 @@ enum KeyboardShortcutSettings {
             case .reopenClosedBrowserPanel: return String(localized: "menu.file.reopenClosedBrowserPanel", defaultValue: "Reopen Closed Browser Panel")
             case .newSurface: return String(localized: "shortcut.newSurface.label", defaultValue: "New Surface")
             case .toggleTerminalCopyMode: return String(localized: "shortcut.toggleTerminalCopyMode.label", defaultValue: "Toggle Terminal Copy Mode")
+            case .tmuxAwareFocusLeft: return String(localized: "shortcut.tmuxAwareFocusPaneLeft.label", defaultValue: "Focus Pane Left (tmux-aware)")
+            case .tmuxAwareFocusRight: return String(localized: "shortcut.tmuxAwareFocusPaneRight.label", defaultValue: "Focus Pane Right (tmux-aware)")
+            case .tmuxAwareFocusUp: return String(localized: "shortcut.tmuxAwareFocusPaneUp.label", defaultValue: "Focus Pane Up (tmux-aware)")
+            case .tmuxAwareFocusDown: return String(localized: "shortcut.tmuxAwareFocusPaneDown.label", defaultValue: "Focus Pane Down (tmux-aware)")
             case .focusLeft: return String(localized: "shortcut.focusPaneLeft.label", defaultValue: "Focus Pane Left")
             case .focusRight: return String(localized: "shortcut.focusPaneRight.label", defaultValue: "Focus Pane Right")
             case .focusUp: return String(localized: "shortcut.focusPaneUp.label", defaultValue: "Focus Pane Up")
@@ -316,6 +324,14 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "w", command: true, shift: true, option: false, control: false)
             case .reopenClosedBrowserPanel:
                 return StoredShortcut(key: "t", command: true, shift: true, option: false, control: false)
+            case .tmuxAwareFocusLeft:
+                return StoredShortcut(key: "h", command: false, shift: false, option: true, control: false)
+            case .tmuxAwareFocusRight:
+                return StoredShortcut(key: "l", command: false, shift: false, option: true, control: false)
+            case .tmuxAwareFocusUp:
+                return StoredShortcut(key: "k", command: false, shift: false, option: true, control: false)
+            case .tmuxAwareFocusDown:
+                return StoredShortcut(key: "j", command: false, shift: false, option: true, control: false)
             case .focusLeft:
                 return StoredShortcut(key: "←", command: true, shift: false, option: true, control: false)
             case .focusRight:

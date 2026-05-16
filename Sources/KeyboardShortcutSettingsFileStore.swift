@@ -465,6 +465,12 @@ final class CmuxSettingsFileStore {
             logInvalid("terminal.showScrollBar", sourcePath: sourcePath)
         }
 
+        if let value = jsonBool(section["tmuxAwarePaneNavigation"]) {
+            snapshot.managedUserDefaults[TmuxPaneNavigationSettings.enabledKey] = .bool(value)
+        } else if section.keys.contains("tmuxAwarePaneNavigation") {
+            logInvalid("terminal.tmuxAwarePaneNavigation", sourcePath: sourcePath)
+        }
+
         if let value = jsonBool(section["autoResumeAgentSessions"]) {
             snapshot.managedUserDefaults[AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey] = .bool(value)
         } else if section.keys.contains("autoResumeAgentSessions") {

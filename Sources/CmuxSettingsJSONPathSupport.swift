@@ -62,6 +62,7 @@ extension CmuxSettingsFileStore {
         "app.renameSelectsExistingName",
         "app.commandPaletteSearchesAllSurfaces",
         "terminal.showScrollBar",
+        "terminal.tmuxAwarePaneNavigation",
         "terminal.autoResumeAgentSessions",
         "notifications.dockBadge",
         "notifications.showInMenuBar",

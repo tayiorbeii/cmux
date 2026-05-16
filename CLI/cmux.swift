@@ -9474,6 +9474,7 @@ struct CMUXCLI {
                    cmux hooks <agent> uninstall [--yes|-y] (opencode supports --project)
                    cmux hooks <agent> <event> [flags]
                    cmux hooks feed --source <agent> [--event <event>]
+                   cmux hooks feed --source tmux-bridge --event <bell|activity|silence> [--pane-id <id>] [--session <name>] [--window <n>] [--pane <n>] [--command <cmd>] [--message <text>]
 
             Manage and run cmux agent hooks without adding one top-level command per
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
@@ -22870,6 +22871,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             throw CLIError(message: "cmux hooks feed requires --source <agent-name>")
         }
 
+        if source == "tmux-bridge" {
+            try runTmuxBridgeFeed(commandArgs: commandArgs, client: client)
+            return
+        }
+
         // Outside a cmux terminal (no CMUX_SURFACE_ID) → silently no-op.
         // Also matches the graceful-fallback pattern of the other hooks.
         guard ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]?.isEmpty == false else {
@@ -23023,6 +23029,107 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return
         }
         print("{}")
+    }
+
+    /// Handles metadata-rich tmux alert hooks. tmux run-shell hooks often do not
+    /// provide JSON on stdin, so this path is intentionally flag-driven and routes
+    /// through the normal caller notification resolver using the tmux pane TTY.
+    private func runTmuxBridgeFeed(commandArgs: [String], client: SocketClient) throws {
+        let rawEvent = optionValue(commandArgs, name: "--event") ?? "bell"
+        let event = rawEvent.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let paneId = optionValue(commandArgs, name: "--pane-id")
+        let sessionName = optionValue(commandArgs, name: "--session")
+        let windowIndex = optionValue(commandArgs, name: "--window")
+        let paneIndex = optionValue(commandArgs, name: "--pane")
+        let command = optionValue(commandArgs, name: "--command")
+        let explicitMessage = optionValue(commandArgs, name: "--message")
+        let callerTTY = paneId.flatMap { Self.tmuxPaneTTY(paneId: $0) } ?? resolveCallerTTYName()
+        let env = ProcessInfo.processInfo.environment
+
+        let sessionContext: String = {
+            let session = sessionName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let window = windowIndex?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let pane = paneIndex?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let location = [window, pane].compactMap { value -> String? in
+                guard let value, !value.isEmpty else { return nil }
+                return value
+            }.joined(separator: ".")
+            if let session, !session.isEmpty, !location.isEmpty { return "tmux \(session):\(location)" }
+            if let session, !session.isEmpty { return "tmux \(session)" }
+            if !location.isEmpty { return "tmux pane \(location)" }
+            return "tmux pane"
+        }()
+
+        let title: String
+        let defaultMessage: String
+        switch event {
+        case "silence", "alert-silence":
+            title = "AI waiting"
+            defaultMessage = "No output detected after tmux's silence threshold. The assistant may be waiting for input."
+        case "activity", "alert-activity":
+            title = "AI active"
+            defaultMessage = "Output resumed after silence."
+        case "bell", "alert-bell":
+            title = "AI alert"
+            defaultMessage = "Bell received from tmux."
+        default:
+            title = "tmux alert"
+            defaultMessage = "tmux reported \(rawEvent)."
+        }
+
+        var bodyParts: [String] = []
+        if let explicitMessage, !explicitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            bodyParts.append(explicitMessage)
+        } else {
+            bodyParts.append(defaultMessage)
+        }
+        if let command, !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            bodyParts.append("Command: \(command)")
+        }
+        if let paneId, !paneId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            bodyParts.append("Pane: \(paneId)")
+        }
+
+        var params: [String: Any] = [
+            "title": title,
+            "subtitle": sessionContext,
+            "body": bodyParts.joined(separator: "\n"),
+            "prefer_tty": true,
+        ]
+        if let callerTTY { params["caller_tty"] = callerTTY }
+        if let workspaceId = env["CMUX_WORKSPACE_ID"], isUUID(workspaceId) {
+            params["preferred_workspace_id"] = workspaceId
+        }
+        if let surfaceId = env["CMUX_SURFACE_ID"], isUUID(surfaceId) {
+            params["preferred_surface_id"] = surfaceId
+        }
+
+        _ = try? client.sendV2(method: "notification.create_for_caller", params: params)
+        print("{}")
+    }
+
+    private static func tmuxPaneTTY(paneId: String) -> String? {
+        let trimmedPaneId = paneId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPaneId.isEmpty else { return nil }
+        return runTmuxForHook(arguments: ["display-message", "-t", trimmedPaneId, "-p", "#{pane_tty}"])?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func runTmuxForHook(arguments: [String]) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["tmux"] + arguments
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = Pipe()
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+        return String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
     }
 
     /// Classifies a raw agent hook event into our wire `hook_event_name`

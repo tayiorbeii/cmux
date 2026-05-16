@@ -62,6 +62,23 @@ You can also set the same preference in `~/.config/cmux/cmux.json`:
 When this is off, cmux still restores the saved window, workspace, pane, scrollback,
 and browser state. Restored agent terminals stay idle until you resume them manually.
 
+## tmux alerts and pane navigation
+
+cmux understands tmux alert hooks when they call the feed bridge with `--source tmux-bridge`:
+
+```tmux
+set -g monitor-bell on
+set -g monitor-activity on
+set -g monitor-silence 15
+set-hook -g alert-bell 'run-shell "cmux hooks feed --source tmux-bridge --event bell --pane-id #{pane_id} --session #{session_name} --window #{window_index} --pane #{pane_index} --command #{pane_current_command}"'
+set-hook -g alert-activity 'run-shell "cmux hooks feed --source tmux-bridge --event activity --pane-id #{pane_id} --session #{session_name} --window #{window_index} --pane #{pane_index} --command #{pane_current_command}"'
+set-hook -g alert-silence 'run-shell "cmux hooks feed --source tmux-bridge --event silence --pane-id #{pane_id} --session #{session_name} --window #{window_index} --pane #{pane_index} --command #{pane_current_command}"'
+```
+
+The bridge resolves `#{pane_id}` to `#{pane_tty}` and sends a native cmux notification through `notification.create_for_caller`, so unread badges, Dock badges, desktop notifications, pane rings, and workspace reordering use the same routing path as terminal notifications.
+
+**Settings > Terminal > tmux-Aware Pane Navigation** enables the native Focus Pane shortcuts (Cmd+Option+Arrow by default), Option+h/j/k/l, and Ghostty split navigation to move inside tmux first. When tmux reports `pane_at_left`, `pane_at_right`, `pane_at_top`, or `pane_at_bottom`, cmux falls through to native split focus. Focus Pane shortcuts remain configurable in **Keyboard Shortcuts** or `cmux.json`.
+
 ## Environment overrides
 
 | Agent | Config directory override | Disable cmux hooks for one process |

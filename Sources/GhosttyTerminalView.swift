@@ -3803,6 +3803,9 @@ class GhosttyApp {
             }
             return performOnMain {
                 guard let tabManager = AppDelegate.shared?.tabManager else { return false }
+                if tabManager.moveSplitFocusTmuxAware(tabId: tabId, surfaceId: surfaceId, direction: direction) {
+                    return true
+                }
                 return tabManager.moveSplitFocus(tabId: tabId, surfaceId: surfaceId, direction: direction)
             }
         case GHOSTTY_ACTION_RESIZE_SPLIT:

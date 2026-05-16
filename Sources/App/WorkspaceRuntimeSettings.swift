@@ -109,6 +109,16 @@ enum TerminalScrollBarSettings {
     }
 }
 
+enum TmuxPaneNavigationSettings {
+    static let enabledKey = "terminal.tmuxAwarePaneNavigation"
+    static let defaultEnabled = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: enabledKey) != nil else { return defaultEnabled }
+        return defaults.bool(forKey: enabledKey)
+    }
+}
+
 enum AgentSessionAutoResumeSettings {
     static let autoResumeAgentSessionsKey = "terminal.autoResumeAgentSessions"
     static let defaultAutoResumeAgentSessions = true

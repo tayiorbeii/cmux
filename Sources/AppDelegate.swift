@@ -11859,54 +11859,71 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Pane focus navigation (defaults to Cmd+Option+Arrow, but can be customized to letter/number keys).
+        func handlePaneFocusShortcut(direction: NavigationDirection, tmuxAware: Bool) -> Bool {
+            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: NSApp.keyWindow)
+            if tmuxAware, tabManager?.movePaneFocusTmuxAware(direction: direction) == true {
+                return true
+            }
+            tabManager?.movePaneFocus(direction: direction)
+#if DEBUG
+            recordGotoSplitMoveIfNeeded(direction: direction)
+#endif
+            return true
+        }
+
+        // tmux-aware pane focus navigation (defaults to Option+h/j/k/l, plus the native
+        // cmux Focus Pane shortcuts below). It navigates inside tmux first and falls
+        // through to cmux splits only when tmux is at an edge.
+        if matchConfiguredShortcut(event: event, action: .tmuxAwareFocusLeft)
+            || (ghosttyGotoSplitLeftShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "←", arrowKeyCode: 123) } ?? false) {
+            return handlePaneFocusShortcut(direction: .left, tmuxAware: true)
+        }
+        if matchConfiguredShortcut(event: event, action: .tmuxAwareFocusRight)
+            || (ghosttyGotoSplitRightShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "→", arrowKeyCode: 124) } ?? false) {
+            return handlePaneFocusShortcut(direction: .right, tmuxAware: true)
+        }
+        if matchConfiguredShortcut(event: event, action: .tmuxAwareFocusUp)
+            || (ghosttyGotoSplitUpShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↑", arrowKeyCode: 126) } ?? false) {
+            return handlePaneFocusShortcut(direction: .up, tmuxAware: true)
+        }
+        if matchConfiguredShortcut(event: event, action: .tmuxAwareFocusDown)
+            || (ghosttyGotoSplitDownShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↓", arrowKeyCode: 125) } ?? false) {
+            return handlePaneFocusShortcut(direction: .down, tmuxAware: true)
+        }
+
+        // Native cmux pane focus shortcuts (defaults to Cmd+Option+Arrow) also use
+        // tmux-aware navigation, so users do not need to learn a second shortcut set.
         if matchConfiguredDirectionalShortcut(
             event: event,
             action: .focusLeft,
             arrowGlyph: "←",
             arrowKeyCode: 123
-        ) || (ghosttyGotoSplitLeftShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "←", arrowKeyCode: 123) } ?? false) {
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: NSApp.keyWindow); tabManager?.movePaneFocus(direction: .left)
-#if DEBUG
-            recordGotoSplitMoveIfNeeded(direction: .left)
-#endif
-            return true
+        ) {
+            return handlePaneFocusShortcut(direction: .left, tmuxAware: true)
         }
         if matchConfiguredDirectionalShortcut(
             event: event,
             action: .focusRight,
             arrowGlyph: "→",
             arrowKeyCode: 124
-        ) || (ghosttyGotoSplitRightShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "→", arrowKeyCode: 124) } ?? false) {
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: NSApp.keyWindow); tabManager?.movePaneFocus(direction: .right)
-#if DEBUG
-            recordGotoSplitMoveIfNeeded(direction: .right)
-#endif
-            return true
+        ) {
+            return handlePaneFocusShortcut(direction: .right, tmuxAware: true)
         }
         if matchConfiguredDirectionalShortcut(
             event: event,
             action: .focusUp,
             arrowGlyph: "↑",
             arrowKeyCode: 126
-        ) || (ghosttyGotoSplitUpShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↑", arrowKeyCode: 126) } ?? false) {
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: NSApp.keyWindow); tabManager?.movePaneFocus(direction: .up)
-#if DEBUG
-            recordGotoSplitMoveIfNeeded(direction: .up)
-#endif
-            return true
+        ) {
+            return handlePaneFocusShortcut(direction: .up, tmuxAware: true)
         }
         if matchConfiguredDirectionalShortcut(
             event: event,
             action: .focusDown,
             arrowGlyph: "↓",
             arrowKeyCode: 125
-        ) || (ghosttyGotoSplitDownShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↓", arrowKeyCode: 125) } ?? false) {
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: NSApp.keyWindow); tabManager?.movePaneFocus(direction: .down)
-#if DEBUG
-            recordGotoSplitMoveIfNeeded(direction: .down)
-#endif
-            return true
+        ) {
+            return handlePaneFocusShortcut(direction: .down, tmuxAware: true)
         }
 
         if matchConfiguredShortcut(event: event, action: .toggleSplitZoom) {

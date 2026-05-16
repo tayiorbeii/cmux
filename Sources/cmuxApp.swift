@@ -5053,6 +5053,8 @@ struct SettingsView: View {
     private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
     @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
     private var showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
+    @AppStorage(TmuxPaneNavigationSettings.enabledKey)
+    private var tmuxAwarePaneNavigation = TmuxPaneNavigationSettings.defaultEnabled
     @AppStorage(FileDropBehaviorSettings.defaultBehaviorKey)
     private var fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
     @AppStorage(AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
@@ -6240,6 +6242,24 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
+                            configurationReview: .json("terminal.tmuxAwarePaneNavigation"),
+                            String(localized: "settings.terminal.tmuxAwarePaneNavigation", defaultValue: "tmux-Aware Pane Navigation"),
+                            subtitle: tmuxAwarePaneNavigation
+                                ? String(localized: "settings.terminal.tmuxAwarePaneNavigation.subtitleOn", defaultValue: "Cmd+Option+Arrow, Option+h/j/k/l, and Ghostty split navigation move inside tmux first, then fall through to cmux at tmux pane edges.")
+                                : String(localized: "settings.terminal.tmuxAwarePaneNavigation.subtitleOff", defaultValue: "Pane navigation shortcuts always use cmux split focus and ignore tmux pane edges.")
+                        ) {
+                            Toggle("", isOn: $tmuxAwarePaneNavigation)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsTerminalTmuxAwarePaneNavigationToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.terminal.tmuxAwarePaneNavigation", defaultValue: "tmux-Aware Pane Navigation")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
                             configurationReview: .json("terminal.autoResumeAgentSessions"),
                             String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"),
                             subtitle: autoResumeAgentSessions
@@ -7364,6 +7384,7 @@ struct SettingsView: View {
         if previousShowTerminalScrollBar != showTerminalScrollBar {
             TerminalScrollBarSettings.notifyDidChange()
         }
+        tmuxAwarePaneNavigation = TmuxPaneNavigationSettings.defaultEnabled
         fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
         let previousAutoResumeAgentSessions = autoResumeAgentSessions
         autoResumeAgentSessions = AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions

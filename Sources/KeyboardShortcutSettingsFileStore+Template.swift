@@ -80,6 +80,7 @@ extension CmuxSettingsFileStore {
             [
                 "terminal": [
                     "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
+                    "tmuxAwarePaneNavigation": TmuxPaneNavigationSettings.defaultEnabled,
                     "autoResumeAgentSessions": AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions,
                 ],
             ],
