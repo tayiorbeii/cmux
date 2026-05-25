@@ -10556,6 +10556,7 @@ struct CMUXCLI {
               cmux notify --title "Build done" --body "All tests passed"
               cmux notify --title "Build done" "All tests passed"
               make 2>&1 | cmux notify --title "Build finished"
+              # stdin bodies are capped to keep socket notifications lightweight
               cmux notify --title "Error" --subtitle "test.swift" --body "Line 42: syntax error"
             """
         case "list-notifications":
@@ -11042,10 +11043,17 @@ struct CMUXCLI {
 
     private func notificationBodyFromStandardInputIfAvailable() -> String? {
         guard isatty(STDIN_FILENO) == 0 else { return nil }
-        let data = FileHandle.standardInput.readDataToEndOfFile()
+        let maxBytes = 16 * 1024
+        let data = (try? FileHandle.standardInput.read(upToCount: maxBytes + 1)) ?? Data()
         guard !data.isEmpty else { return nil }
-        let text = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-        return text.isEmpty ? nil : text
+        let isTruncated = data.count > maxBytes
+        let bodyBytes = isTruncated ? data.prefix(maxBytes) : data[...]
+        var text = String(decoding: bodyBytes, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        if isTruncated {
+            text += "\n" + String(localized: "cli.notify.stdin.truncated", defaultValue: "… (stdin truncated)")
+        }
+        return text
     }
 
     func hasFlag(_ args: [String], name: String) -> Bool {
