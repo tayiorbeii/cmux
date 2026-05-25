@@ -2225,6 +2225,7 @@ struct CMUXCLI {
         "--source", "--subtitle", "--surface", "--tab", "--target-pane",
         "--text", "--timeout", "--timeout-ms", "--title", "--transcript",
         "--turn", "--type", "--url", "--url-contains", "--value", "--window",
+        "--pane-title", "--window-name",
         "--workspace",
     ]
 
@@ -23541,6 +23542,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let windowIndex = optionValue(commandArgs, name: "--window")
         let paneIndex = optionValue(commandArgs, name: "--pane")
         let command = optionValue(commandArgs, name: "--command")
+        let paneTitle = optionValue(commandArgs, name: "--pane-title")
+        let windowName = optionValue(commandArgs, name: "--window-name")
         let explicitMessage = optionValue(commandArgs, name: "--message")
         let explicitWorkspaceId = optionValue(commandArgs, name: "--workspace")
         let explicitSurfaceId = optionValue(commandArgs, name: "--surface")
@@ -23593,6 +23596,23 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             bodyParts.append(explicitMessage)
         } else {
             bodyParts.append(defaultMessage)
+        }
+        if let paneTitle, !paneTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            bodyParts.append(
+                String.localizedStringWithFormat(
+                    String(localized: "cli.tmuxBridge.notification.body.paneTitle", defaultValue: "Title: %@"),
+                    paneTitle
+                )
+            )
+        }
+        if let windowName, !windowName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           windowName.trimmingCharacters(in: .whitespacesAndNewlines) != paneTitle?.trimmingCharacters(in: .whitespacesAndNewlines) {
+            bodyParts.append(
+                String.localizedStringWithFormat(
+                    String(localized: "cli.tmuxBridge.notification.body.windowName", defaultValue: "Window: %@"),
+                    windowName
+                )
+            )
         }
         if let command, !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             bodyParts.append(
@@ -24274,7 +24294,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     private func tmuxBridgeHookCommand(event: String) -> String {
         let cli = tmuxBridgeCLICommand()
         let socketArgument = tmuxBridgeSocketArgument()
-        let bridge = "\(cli)\(socketArgument) hooks feed --source tmux-bridge --event \(event) --pane-id #{q:pane_id} --pane-tty #{q:pane_tty} --session #{q:session_name} --window #{q:window_index} --pane #{q:pane_index} --command #{q:pane_current_command} # cmux-tmux-bridge"
+        let bridge = "\(cli)\(socketArgument) hooks feed --source tmux-bridge --event \(event) --pane-id #{q:pane_id} --pane-tty #{q:pane_tty} --session #{q:session_name} --window #{q:window_index} --pane #{q:pane_index} --pane-title #{q:pane_title} --window-name #{q:window_name} --command #{q:pane_current_command} # cmux-tmux-bridge"
         return "run-shell -b \(shellQuote(bridge))"
     }
 
