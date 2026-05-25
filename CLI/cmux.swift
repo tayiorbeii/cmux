@@ -3663,10 +3663,19 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
         case "notify":
-            let tmuxDefaults = tmuxNotificationDefaultsForCaller()
+            var cachedTmuxDefaults: TmuxNotificationDefaults?
+            var didLoadTmuxDefaults = false
+            func tmuxDefaultsForNotify() -> TmuxNotificationDefaults? {
+                if !didLoadTmuxDefaults {
+                    cachedTmuxDefaults = tmuxNotificationDefaultsForCaller()
+                    didLoadTmuxDefaults = true
+                }
+                return cachedTmuxDefaults
+            }
+
             let explicitTitle = optionValue(commandArgs, name: "--title")?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let title = explicitTitle?.isEmpty == false ? explicitTitle! : (tmuxDefaults?.title ?? "Notification")
-            let subtitle = optionValue(commandArgs, name: "--subtitle") ?? tmuxDefaults?.subtitle ?? ""
+            let title = explicitTitle?.isEmpty == false ? explicitTitle! : (tmuxDefaultsForNotify()?.title ?? "Notification")
+            let subtitle = optionValue(commandArgs, name: "--subtitle") ?? tmuxDefaultsForNotify()?.subtitle ?? ""
             let bodyMaxBytes = try notificationBodyMaxBytes(from: commandArgs)
             let explicitBodyArgument = optionValue(commandArgs, name: "--body") ?? optionValue(commandArgs, name: "--message")
             let explicitBody: String?
@@ -3684,7 +3693,7 @@ struct CMUXCLI {
             let stdinBody = explicitBody == nil && positionalBody.isEmpty ? notificationBodyFromStandardInputIfAvailable(maxBytes: bodyMaxBytes) : nil
             let resolvedBody = explicitBody ?? (positionalBody.isEmpty ? (stdinBody ?? "") : positionalBody)
             let body = resolvedBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? (tmuxDefaults?.body ?? "")
+                ? (tmuxDefaultsForNotify()?.body ?? "")
                 : resolvedBody
             let explicitWorkspaceArg = optionValue(commandArgs, name: "--workspace")
             let env = ProcessInfo.processInfo.environment
