@@ -2219,7 +2219,7 @@ struct CMUXCLI {
         "--config", "--cwd", "--description", "--direction", "--domain",
         "--dx", "--dy", "--email", "--event", "--expires", "--focus",
         "--function", "--id", "--image", "--index", "--key", "--layout",
-        "--lines", "--load-state", "--max-depth", "--name", "--os",
+        "--lines", "--load-state", "--max-depth", "--message", "--name", "--os",
         "--out", "--pane", "--panel", "--path", "--profile", "--property",
         "--provider", "--relay-port", "--script", "--selector", "--session",
         "--source", "--subtitle", "--surface", "--tab", "--target-pane",
@@ -3660,7 +3660,11 @@ struct CMUXCLI {
         case "notify":
             let title = optionValue(commandArgs, name: "--title") ?? "Notification"
             let subtitle = optionValue(commandArgs, name: "--subtitle") ?? ""
-            let body = optionValue(commandArgs, name: "--body") ?? ""
+            let positionalBody = positionalArgumentsExcludingOptions(
+                commandArgs,
+                optionsWithValues: ["--title", "--subtitle", "--body", "--message", "--workspace", "--surface"]
+            ).joined(separator: " ")
+            let body = optionValue(commandArgs, name: "--body") ?? optionValue(commandArgs, name: "--message") ?? positionalBody
             let explicitWorkspaceArg = optionValue(commandArgs, name: "--workspace")
             let env = ProcessInfo.processInfo.environment
             let preferTTYFallback = windowId == nil && env["TMUX"]?.isEmpty == false
@@ -10541,11 +10545,13 @@ struct CMUXCLI {
               --title <text>         Notification title (default: "Notification")
               --subtitle <text>      Notification subtitle
               --body <text>          Notification body
+              --message <text>       Alias for --body
               --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
               --surface <id|ref>     Target surface (default: $CMUX_SURFACE_ID)
 
             Example:
               cmux notify --title "Build done" --body "All tests passed"
+              cmux notify --title "Build done" "All tests passed"
               cmux notify --title "Error" --subtitle "test.swift" --body "Line 42: syntax error"
             """
         case "list-notifications":
@@ -10999,6 +11005,35 @@ struct CMUXCLI {
         }
         guard let index = args.firstIndex(of: name), index + 1 < args.count else { return nil }
         return args[index + 1]
+    }
+
+    private func positionalArgumentsExcludingOptions(_ args: [String], optionsWithValues: Set<String>) -> [String] {
+        var result: [String] = []
+        var skipNext = false
+        var pastTerminator = false
+        for arg in args {
+            if skipNext {
+                skipNext = false
+                continue
+            }
+            if !pastTerminator, arg == "--" {
+                pastTerminator = true
+                continue
+            }
+            if !pastTerminator {
+                if let equalsIndex = arg.firstIndex(of: "="),
+                   optionsWithValues.contains(String(arg[..<equalsIndex])) {
+                    continue
+                }
+                if optionsWithValues.contains(arg) {
+                    skipNext = true
+                    continue
+                }
+                if arg.hasPrefix("-") { continue }
+            }
+            result.append(arg)
+        }
+        return result
     }
 
     func hasFlag(_ args: [String], name: String) -> Bool {
