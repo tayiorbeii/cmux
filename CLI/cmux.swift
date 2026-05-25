@@ -11044,14 +11044,27 @@ struct CMUXCLI {
     private func notificationBodyFromStandardInputIfAvailable() -> String? {
         guard isatty(STDIN_FILENO) == 0 else { return nil }
         let maxBytes = 16 * 1024
-        let data = (try? FileHandle.standardInput.read(upToCount: maxBytes + 1)) ?? Data()
-        guard !data.isEmpty else { return nil }
-        let isTruncated = data.count > maxBytes
-        let bodyBytes = isTruncated ? data.prefix(maxBytes) : data[...]
+        let chunkSize = 4 * 1024
+        var bodyBytes = Data()
+        var isTruncated = false
+
+        while true {
+            guard let chunk = try? FileHandle.standardInput.read(upToCount: chunkSize),
+                  !chunk.isEmpty else {
+                break
+            }
+            bodyBytes.append(chunk)
+            if bodyBytes.count > maxBytes {
+                isTruncated = true
+                bodyBytes = Data(bodyBytes.suffix(maxBytes))
+            }
+        }
+
+        guard !bodyBytes.isEmpty else { return nil }
         var text = String(decoding: bodyBytes, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
         if isTruncated {
-            text += "\n" + String(localized: "cli.notify.stdin.truncated", defaultValue: "… (stdin truncated)")
+            text = String(localized: "cli.notify.stdin.truncatedToTail", defaultValue: "… (stdin truncated to last 16 KB)") + "\n" + text
         }
         return text
     }
