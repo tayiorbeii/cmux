@@ -17542,14 +17542,58 @@ struct CMUXCLI {
             params["preferred_surface_id"] = surfaceId
         }
         if let callerTTY = resolveCallerTTYNameForRouting() { params["caller_tty"] = callerTTY }
-        if ProcessInfo.processInfo.environment["TMUX"]?.isEmpty == false {
-            if let paneTTY = Self.tmuxCurrentPaneTTY() { params["tmux_pane_tty"] = paneTTY }
-            if let paneId = Self.normalizedTmuxHookValue(Self.runTmuxForHook(arguments: ["display-message", "-p", "#{pane_id}"])) { params["tmux_pane_id"] = paneId }
-            if let session = Self.normalizedTmuxHookValue(Self.runTmuxForHook(arguments: ["display-message", "-p", "#{session_name}"])) { params["tmux_session"] = session }
-            if let window = Self.normalizedTmuxHookValue(Self.runTmuxForHook(arguments: ["display-message", "-p", "#{window_index}"])) { params["tmux_window"] = window }
-            if let pane = Self.normalizedTmuxHookValue(Self.runTmuxForHook(arguments: ["display-message", "-p", "#{pane_index}"])) { params["tmux_pane"] = pane }
-            if let command = Self.normalizedTmuxHookValue(Self.runTmuxForHook(arguments: ["display-message", "-p", "#{pane_current_command}"])) { params["tmux_command"] = command }
+        if let tmux = Self.tmuxCallerRoutingMetadata() {
+            if let paneTTY = tmux.paneTTY { params["tmux_pane_tty"] = paneTTY }
+            if let paneId = tmux.paneId { params["tmux_pane_id"] = paneId }
+            if let session = tmux.session { params["tmux_session"] = session }
+            if let window = tmux.window { params["tmux_window"] = window }
+            if let pane = tmux.pane { params["tmux_pane"] = pane }
+            if let command = tmux.command { params["tmux_command"] = command }
         }
+    }
+
+    private struct TmuxCallerRoutingMetadata {
+        let paneTTY: String?
+        let paneId: String?
+        let session: String?
+        let window: String?
+        let pane: String?
+        let command: String?
+    }
+
+    private static func tmuxCallerRoutingMetadata() -> TmuxCallerRoutingMetadata? {
+        guard ProcessInfo.processInfo.environment["TMUX"]?.isEmpty == false else { return nil }
+        let separator = "\u{1F}"
+        let format = [
+            "#{pane_tty}",
+            "#{pane_id}",
+            "#{session_name}",
+            "#{window_index}",
+            "#{pane_index}",
+            "#{pane_current_command}",
+        ].joined(separator: separator)
+        let output = runTmuxForHook(arguments: ["display-message", "-p", format]) ?? ""
+        let fields = output.components(separatedBy: separator).map { normalizedTmuxHookValue($0) }
+        func field(_ index: Int) -> String? {
+            fields.indices.contains(index) ? fields[index] : nil
+        }
+        let metadata = TmuxCallerRoutingMetadata(
+            paneTTY: field(0),
+            paneId: field(1),
+            session: field(2),
+            window: field(3),
+            pane: field(4),
+            command: field(5)
+        )
+        if metadata.paneTTY == nil,
+           metadata.paneId == nil,
+           metadata.session == nil,
+           metadata.window == nil,
+           metadata.pane == nil,
+           metadata.command == nil {
+            return nil
+        }
+        return metadata
     }
 
     private func resolvePreferredWorkspaceIdForClaudeHook(
