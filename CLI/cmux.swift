@@ -23679,6 +23679,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             )
         }
 
+        let notificationTitle = tmuxBridgeNotificationTitle(baseTitle: title, paneTitle: paneTitle, windowName: windowName)
+
         var bodyParts: [String] = []
         if let explicitMessage, !explicitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             bodyParts.append(explicitMessage)
@@ -23728,7 +23730,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
 
         var params: [String: Any] = [
-            "title": title,
+            "title": notificationTitle,
             "subtitle": sessionContext,
             "body": bodyParts.joined(separator: "\n"),
             "prefer_tty": true,
@@ -23750,6 +23752,21 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         _ = try? client.sendV2(method: "notification.create_for_caller", params: params)
         print("{}")
+    }
+
+    private func tmuxBridgeNotificationTitle(baseTitle: String, paneTitle: String?, windowName: String?) -> String {
+        let context = [paneTitle, windowName].compactMap { rawValue -> String? in
+            guard let value = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+                return nil
+            }
+            return value
+        }.first
+        guard let context else { return baseTitle }
+        return String.localizedStringWithFormat(
+            String(localized: "cli.tmuxBridge.notification.title.withContext", defaultValue: "%@ — %@"),
+            baseTitle,
+            context
+        )
     }
 
     private static func tmuxPaneTTY(paneId: String) -> String? {
