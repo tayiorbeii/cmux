@@ -23755,11 +23755,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     }
 
     private func tmuxBridgeNotificationTitle(baseTitle: String, paneTitle: String?, windowName: String?) -> String {
+        let maxContextCharacters = 80
         let context = [paneTitle, windowName].compactMap { rawValue -> String? in
             guard let value = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
                 return nil
             }
-            return value
+            if value.count <= maxContextCharacters { return value }
+            let endIndex = value.index(value.startIndex, offsetBy: maxContextCharacters)
+            return String(value[..<endIndex]) + "…"
         }.first
         guard let context else { return baseTitle }
         return String.localizedStringWithFormat(
