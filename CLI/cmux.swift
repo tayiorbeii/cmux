@@ -3669,7 +3669,7 @@ struct CMUXCLI {
             let explicitBodyArgument = optionValue(commandArgs, name: "--body") ?? optionValue(commandArgs, name: "--message")
             let explicitBody: String?
             if let explicitBodyArgument {
-                explicitBody = explicitBodyArgument == "-" ? notificationBodyFromStandardInputIfAvailable(maxBytes: bodyMaxBytes) : explicitBodyArgument
+                explicitBody = explicitBodyArgument == "-" ? try notificationBodyFromStandardInput(required: true, maxBytes: bodyMaxBytes) : explicitBodyArgument
             } else if let bodyFile = optionValue(commandArgs, name: "--body-file") {
                 explicitBody = try notificationBodyFromFileArgument(bodyFile, maxBytes: bodyMaxBytes)
             } else {
@@ -11069,13 +11069,22 @@ struct CMUXCLI {
     }
 
     private func notificationBodyFromStandardInputIfAvailable(maxBytes: Int) -> String? {
-        guard isatty(STDIN_FILENO) == 0 else { return nil }
+        try? notificationBodyFromStandardInput(required: false, maxBytes: maxBytes)
+    }
+
+    private func notificationBodyFromStandardInput(required: Bool, maxBytes: Int) throws -> String? {
+        guard isatty(STDIN_FILENO) == 0 else {
+            if required {
+                throw CLIError(message: "notify: stdin body requested but stdin is a terminal")
+            }
+            return nil
+        }
         return notificationBodyFromFileHandle(FileHandle.standardInput, maxBytes: maxBytes)
     }
 
     private func notificationBodyFromFileArgument(_ argument: String, maxBytes: Int) throws -> String? {
         let trimmed = argument.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed == "-" { return notificationBodyFromFileHandle(FileHandle.standardInput, maxBytes: maxBytes) }
+        if trimmed == "-" { return try notificationBodyFromStandardInput(required: true, maxBytes: maxBytes) }
         let expandedPath = (trimmed as NSString).expandingTildeInPath
         let url = URL(fileURLWithPath: expandedPath)
         let handle = try FileHandle(forReadingFrom: url)
