@@ -3662,8 +3662,9 @@ struct CMUXCLI {
             let subtitle = optionValue(commandArgs, name: "--subtitle") ?? ""
             let body = optionValue(commandArgs, name: "--body") ?? ""
             let explicitWorkspaceArg = optionValue(commandArgs, name: "--workspace")
-            let preferTTYFallback = windowId == nil && ProcessInfo.processInfo.environment["TMUX"] != nil
-            let explicitSurfaceArg = optionValue(commandArgs, name: "--surface"), env = ProcessInfo.processInfo.environment
+            let env = ProcessInfo.processInfo.environment
+            let preferTTYFallback = windowId == nil && env["TMUX"]?.isEmpty == false
+            let explicitSurfaceArg = optionValue(commandArgs, name: "--surface")
             let hasExplicitHandle = [explicitWorkspaceArg, explicitSurfaceArg].compactMap { $0 }.contains { !isUUID($0) }
             if hasExplicitHandle && explicitSurfaceArg != nil {
                 let workspaceRaw = explicitWorkspaceArg ?? (windowId == nil ? env["CMUX_WORKSPACE_ID"] : nil)
@@ -3677,22 +3678,28 @@ struct CMUXCLI {
                 print(response)
                 return
             }
-            var params: [String: Any] = ["title": title, "subtitle": subtitle, "body": body]
-            let method: String
             if explicitSurfaceArg != nil {
-                method = "notification.create"
+                var params: [String: Any] = ["title": title, "subtitle": subtitle, "body": body]
                 if let explicitWorkspaceArg { params["workspace_id"] = explicitWorkspaceArg }
                 else if windowId == nil, let workspaceArg = env["CMUX_WORKSPACE_ID"], isUUID(workspaceArg) { params["workspace_id"] = workspaceArg }
                 if let explicitSurfaceArg { params["surface_id"] = explicitSurfaceArg }
-            } else {
-                method = "notification.create_for_caller"
-                params["prefer_tty"] = preferTTYFallback && explicitWorkspaceArg == nil
-                let workspaceArg = explicitWorkspaceArg ?? (windowId == nil ? env["CMUX_WORKSPACE_ID"] : nil)
-                if let workspaceArg, isUUID(workspaceArg) || explicitWorkspaceArg != nil { params["preferred_workspace_id"] = isUUID(workspaceArg) ? workspaceArg : try resolveWorkspaceId(workspaceArg, client: client) }
-                if windowId == nil, let surfaceId = env["CMUX_SURFACE_ID"], isUUID(surfaceId) { params["preferred_surface_id"] = surfaceId }
-                if let callerTTY = resolveCallerTTYName() { params["caller_tty"] = callerTTY }
+                let payload = try client.sendV2(method: "notification.create", params: params)
+                printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
+                return
             }
-            let payload = try client.sendV2(method: method, params: params)
+
+            let workspaceArg = explicitWorkspaceArg ?? (windowId == nil ? env["CMUX_WORKSPACE_ID"] : nil)
+            let resolvedWorkspaceId = try workspaceArg.map { isUUID($0) ? $0 : try resolveWorkspaceId($0, client: client) }
+            let preferredSurfaceId = windowId == nil ? env["CMUX_SURFACE_ID"].flatMap { isUUID($0) ? $0 : nil } : nil
+            let payload = try sendNotificationForCaller(
+                client: client,
+                title: title,
+                subtitle: subtitle,
+                body: body,
+                workspaceId: resolvedWorkspaceId,
+                surfaceId: preferredSurfaceId,
+                preferTTY: preferTTYFallback && explicitWorkspaceArg == nil
+            )
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
         case "list-notifications":
             let response = try sendV1Command("list_notifications", client: client)
@@ -10526,7 +10533,9 @@ struct CMUXCLI {
             return """
             Usage: cmux notify [flags]
 
-            Send a notification to a workspace/surface.
+            Send a notification to a workspace/surface. When run inside tmux,
+            cmux includes tmux pane metadata so the notification is routed to
+            the originating pane instead of only the focused cmux surface.
 
             Flags:
               --title <text>         Notification title (default: "Notification")

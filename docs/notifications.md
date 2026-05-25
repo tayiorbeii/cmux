@@ -229,6 +229,8 @@ Three tmux alert hooks are installed globally:
 
 Each hook calls `cmux hooks feed --source tmux-bridge` with pane+socket metadata. The cmux socket routes each notification to the correct workspace.
 
+For rich notification content from programs running inside tmux, prefer calling `cmux notify --title ... --body ...` directly. tmux consumes unwrapped OSC notification sequences such as `OSC 777`, so by the time cmux receives tmux's forwarded bell there is no title/body payload left to recover. The `cmux notify` CLI uses the cmux socket instead of terminal escape sequences and includes tmux pane metadata so notifications are routed back to the originating pane.
+
 ### Prerequisites
 
 - The cmux CLI must be reachable as `cmux` from inside tmux.
@@ -304,7 +306,7 @@ cmux sets these in child shells:
 ## CLI Commands
 
 ```
-cmux notify --title <text> [--subtitle <text>] [--body <text>] [--tab <id|index>] [--panel <id|index>]
+cmux notify --title <text> [--subtitle <text>] [--body <text>] [--workspace <id|ref>] [--surface <id|ref>]
 cmux list-notifications
 cmux dismiss-notification (--id <notification-id> | --all-read)
 cmux mark-notification-read (--id <notification-id> | --workspace <id|ref> [--surface <id|ref>] | --all)
