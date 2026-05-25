@@ -6574,6 +6574,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var copyVisualAnchor: CopyModeCursor?
     /// True when visual block mode is active (Ctrl-v).
     private var copyVisualBlockActive = false
+
+    // MARK: - Copy-Mode Overlay Cursor & Selection (Slice 5)
+    /// Semi-transparent yellow layer drawn at cursor position when the debug
+    /// toggle `copyModeOverlayEnabled` is on.
+    private var copyModeOverlayCursorLayer: CALayer?
+    /// Semi-transparent layer spanning the visual selection range.
+    private var copyModeOverlaySelectionLayer: CALayer?
+
     fileprivate var isKeyboardCopyModeActive: Bool { keyboardCopyModeActive }
     fileprivate var currentKeyStateIndicatorText: String? {
         if let name = keyTables.last {
@@ -7255,6 +7263,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             copyCursor = nil
             copyViewportTopScreenRow = 0
             copyPreferredCol = 0
+            removeCopyModeOverlays()
         }
         terminalSurface?.setKeyboardCopyModeActive(active)
     }
@@ -7290,6 +7299,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let row = UInt32(cursor.screenRow)
         let col = UInt32(cursor.screenCol)
         _ = ghostty_surface_set_selection_range_compat(surface, row, col, row, col, false)
+        updateCopyModeOverlayCursor(surface: surface)
     }
 
     /// Set the Ghostty selection range from anchor to current cursor.
@@ -7307,6 +7317,112 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = ghostty_surface_set_selection_range_compat(
             surface, startRow, startCol, endRow, endCol, copyVisualBlockActive
         )
+
+        // Update the overlay selection if enabled.
+        updateCopyModeOverlaySelection(surface: surface)
+    }
+
+    // MARK: - Copy-Mode Overlay Cursor & Selection Layers
+
+    /// Key for the Debug-menu toggle that enables overlay cursor/selection layers.
+    static let copyModeOverlayEnabledKey = "copyModeOverlayEnabled"
+
+    /// Whether the overlay cursor/selection is enabled (Debug menu toggle).
+    private var copyModeOverlayEnabled: Bool {
+        UserDefaults.standard.bool(forKey: GhosttyNSView.copyModeOverlayEnabledKey)
+    }
+
+    /// Returns cell dimensions in points from the Ghostty surface.
+    private func copyModeCellSize(surface: ghostty_surface_t) -> (width: CGFloat, height: CGFloat) {
+        let size = ghostty_surface_size(surface)
+        return (CGFloat(size.cell_width_px), CGFloat(size.cell_height_px))
+    }
+
+    /// Show or update the overlay cursor layer at the current `copyCursor` position.
+    /// Safe to call when the overlay toggle is off (no-op).
+    private func updateCopyModeOverlayCursor(surface: ghostty_surface_t) {
+        guard copyModeOverlayEnabled, let cursor = copyCursor else {
+            copyModeOverlayCursorLayer?.isHidden = true
+            return
+        }
+        let cellSize = copyModeCellSize(surface: surface)
+        guard cellSize.width > 0, cellSize.height > 0 else { return }
+
+        let layer = copyModeOverlayCursorLayer ?? {
+            let l = CALayer()
+            l.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.55).cgColor
+            l.cornerRadius = 2
+            l.zPosition = 100
+            self.layer?.addSublayer(l)
+            copyModeOverlayCursorLayer = l
+            return l
+        }()
+
+        layer.frame = CGRect(
+            x: CGFloat(cursor.screenCol) * cellSize.width,
+            y: CGFloat(cursor.viewportRow) * cellSize.height,
+            width: cellSize.width,
+            height: cellSize.height
+        )
+        layer.isHidden = false
+    }
+
+    /// Show or update the overlay selection layer spanning anchor-to-cursor.
+    private func updateCopyModeOverlaySelection(surface: ghostty_surface_t) {
+        guard copyModeOverlayEnabled,
+              keyboardCopyModeVisualActive,
+              let anchor = copyVisualAnchor,
+              let cursor = copyCursor else {
+            copyModeOverlaySelectionLayer?.isHidden = true
+            return
+        }
+        let cellSize = copyModeCellSize(surface: surface)
+        guard cellSize.width > 0, cellSize.height > 0 else { return }
+
+        let layer = copyModeOverlaySelectionLayer ?? {
+            let l = CALayer()
+            l.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.25).cgColor
+            l.borderColor = NSColor.systemYellow.withAlphaComponent(0.5).cgColor
+            l.borderWidth = 1
+            l.cornerRadius = 1
+            l.zPosition = 99
+            self.layer?.addSublayer(l)
+            copyModeOverlaySelectionLayer = l
+            return l
+        }()
+
+        let startRow = min(anchor.viewportRow, cursor.viewportRow)
+        let endRow = max(anchor.viewportRow, cursor.viewportRow)
+        let startCol = min(anchor.screenCol, cursor.screenCol)
+        let endCol = max(anchor.screenCol, cursor.screenCol)
+
+        if copyVisualBlockActive {
+            // Rectangular (block) selection.
+            layer.frame = CGRect(
+                x: CGFloat(startCol) * cellSize.width,
+                y: CGFloat(startRow) * cellSize.height,
+                width: CGFloat(endCol - startCol + 1) * cellSize.width,
+                height: CGFloat(endRow - startRow + 1) * cellSize.height
+            )
+        } else {
+            // Line-wise selection: full rows from startRow to endRow.
+            let totalCols = Int(ghostty_surface_size(surface).columns)
+            layer.frame = CGRect(
+                x: 0,
+                y: CGFloat(startRow) * cellSize.height,
+                width: CGFloat(totalCols) * cellSize.width,
+                height: CGFloat(endRow - startRow + 1) * cellSize.height
+            )
+        }
+        layer.isHidden = false
+    }
+
+    /// Remove all overlay layers (called on copy-mode exit).
+    private func removeCopyModeOverlays() {
+        copyModeOverlayCursorLayer?.removeFromSuperlayer()
+        copyModeOverlayCursorLayer = nil
+        copyModeOverlaySelectionLayer?.removeFromSuperlayer()
+        copyModeOverlaySelectionLayer = nil
     }
 
     /// Update cursor viewport tracking after a scroll operation.
@@ -7657,6 +7773,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             guard let anchor = copyVisualAnchor else { break }
             let r = UInt32(anchor.screenRow), c = UInt32(anchor.screenCol)
             _ = ghostty_surface_set_selection_range_compat(surface, r, c, r, c, false)
+            updateCopyModeOverlaySelection(surface: surface)
         case .startBlockSelection:
             // Enter visual block mode. Anchor at current cursor position.
             guard let cursor = copyCursor else { break }
@@ -7666,11 +7783,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // Set initial 1-cell rectangular selection at anchor.
             let r = UInt32(cursor.screenRow), c = UInt32(cursor.screenCol)
             _ = ghostty_surface_set_selection_range_compat(surface, r, c, r, c, true)
+            updateCopyModeOverlaySelection(surface: surface)
         case .clearSelection:
             keyboardCopyModeVisualActive = false
             copyVisualBlockActive = false
             copyVisualAnchor = nil
             _ = ghostty_surface_clear_selection_compat(surface)
+            // Hide selection overlay.
+            copyModeOverlaySelectionLayer?.isHidden = true
             // Re-place 1-cell cursor at current copy-cursor position.
             placeCopyModeCursor(surface: surface)
         case .clearBlockMode:
@@ -7701,6 +7821,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // Also set copyCursor to end of line so motions extend from there.
             copyCursor = lineEnd
             copyPreferredCol = lineEnd.screenCol
+            updateCopyModeOverlaySelection(surface: surface)
         case .swapSelectionAnchor:
             guard keyboardCopyModeVisualActive,
                   let anchor = copyVisualAnchor,

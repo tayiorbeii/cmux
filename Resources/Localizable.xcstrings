@@ -53,6 +53,7 @@
     "debug.bonsplitTabBarDebug.separatorFadeFrame": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Separator fade frame" } }, "ja": { "stringUnit": { "state": "translated", "value": "区切り線のフェード幅" } } } },
     "debug.bonsplitTabBarDebug.solidBgExtra": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Solid bg extra" } }, "ja": { "stringUnit": { "state": "translated", "value": "単色背景の追加幅" } } } },
     "debug.bonsplitTabBarDebug.title": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Bonsplit Tab Bar Debug" } }, "ja": { "stringUnit": { "state": "translated", "value": "Bonsplitタブバーのデバッグ" } } } },
+    "debug.menu.copyModeOverlayCursor": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Copy Mode Overlay Cursor" } }, "ja": { "stringUnit": { "state": "translated", "value": "コピーモードオーバーレイカーソル" } } } },
     "debug.menu.bonsplitTabBarDebug": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Bonsplit Tab Bar Debug…" } }, "ja": { "stringUnit": { "state": "translated", "value": "Bonsplitタブバーのデバッグ…" } } } },
     "mode.compact": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Compact" } }, "ja": { "stringUnit": { "state": "translated", "value": "コンパクト" } } } },
     "mode.expanded": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Expanded" } }, "ja": { "stringUnit": { "state": "translated", "value": "拡張" } } } },

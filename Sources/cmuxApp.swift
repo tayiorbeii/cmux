@@ -308,6 +308,16 @@ struct cmuxApp: App {
 
 #if DEBUG
             CommandMenu("Debug") {
+                Toggle(
+                    String(
+                        localized: "debug.menu.copyModeOverlayCursor",
+                        defaultValue: "Copy Mode Overlay Cursor"
+                    ),
+                    isOn: Binding(
+                        get: { UserDefaults.standard.bool(forKey: GhosttyNSView.copyModeOverlayEnabledKey) },
+                        set: { UserDefaults.standard.set($0, forKey: GhosttyNSView.copyModeOverlayEnabledKey) }
+                    )
+                )
                 Button("New Tab With Lorem Search Text") {
                     appDelegate.openDebugLoremTab(nil)
                 }
