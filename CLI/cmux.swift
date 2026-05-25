@@ -3663,9 +3663,10 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
         case "notify":
+            let tmuxDefaults = tmuxNotificationDefaultsForCaller()
             let explicitTitle = optionValue(commandArgs, name: "--title")?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let title = explicitTitle?.isEmpty == false ? explicitTitle! : (defaultNotificationTitleForCaller() ?? "Notification")
-            let subtitle = optionValue(commandArgs, name: "--subtitle") ?? defaultNotificationSubtitleForCaller() ?? ""
+            let title = explicitTitle?.isEmpty == false ? explicitTitle! : (tmuxDefaults?.title ?? "Notification")
+            let subtitle = optionValue(commandArgs, name: "--subtitle") ?? tmuxDefaults?.subtitle ?? ""
             let bodyMaxBytes = try notificationBodyMaxBytes(from: commandArgs)
             let explicitBodyArgument = optionValue(commandArgs, name: "--body") ?? optionValue(commandArgs, name: "--message")
             let explicitBody: String?
@@ -3683,7 +3684,7 @@ struct CMUXCLI {
             let stdinBody = explicitBody == nil && positionalBody.isEmpty ? notificationBodyFromStandardInputIfAvailable(maxBytes: bodyMaxBytes) : nil
             let resolvedBody = explicitBody ?? (positionalBody.isEmpty ? (stdinBody ?? "") : positionalBody)
             let body = resolvedBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? (defaultNotificationBodyForCaller() ?? "")
+                ? (tmuxDefaults?.body ?? "")
                 : resolvedBody
             let explicitWorkspaceArg = optionValue(commandArgs, name: "--workspace")
             let env = ProcessInfo.processInfo.environment
@@ -11062,41 +11063,56 @@ struct CMUXCLI {
         return result
     }
 
-    private func defaultNotificationTitleForCaller() -> String? {
+    private struct TmuxNotificationDefaults {
+        let title: String?
+        let subtitle: String?
+        let body: String?
+    }
+
+    private func tmuxNotificationDefaultsForCaller() -> TmuxNotificationDefaults? {
         guard ProcessInfo.processInfo.environment["TMUX"]?.isEmpty == false else { return nil }
-        let candidates = [
-            Self.normalizedTmuxHookValue(Self.runTmuxForHook(arguments: ["display-message", "-p", "#{pane_title}"])),
-            Self.normalizedTmuxHookValue(Self.runTmuxForHook(arguments: ["display-message", "-p", "#{window_name}"])),
-            Self.normalizedTmuxHookValue(Self.runTmuxForHook(arguments: ["display-message", "-p", "#{pane_current_command}"])),
-        ]
-        return candidates.compactMap { value -> String? in
+        let separator = "\u{1F}"
+        let format = [
+            "#{pane_title}",
+            "#{window_name}",
+            "#{pane_current_command}",
+            "#{session_name}",
+            "#{window_index}",
+            "#{pane_index}",
+            "#{pane_current_path}",
+        ].joined(separator: separator)
+        let output = Self.runTmuxForHook(arguments: ["display-message", "-p", format]) ?? ""
+        let fields = output.components(separatedBy: separator).map { Self.normalizedTmuxHookValue($0) }
+        func field(_ index: Int) -> String? {
+            fields.indices.contains(index) ? fields[index] : nil
+        }
+
+        let paneTitle = field(0)
+        let windowName = field(1)
+        let command = field(2)
+        let session = field(3)
+        let window = field(4)
+        let pane = field(5)
+        let path = field(6)
+
+        let title = [paneTitle, windowName, command].compactMap { value -> String? in
             guard let value, !value.isEmpty, value != "tmux" else { return nil }
             return conciseNotificationTitleContext(value)
         }.first
-    }
 
-    private func defaultNotificationSubtitleForCaller() -> String? {
-        guard ProcessInfo.processInfo.environment["TMUX"]?.isEmpty == false else { return nil }
-        let session = Self.normalizedTmuxHookValue(Self.runTmuxForHook(arguments: ["display-message", "-p", "#{session_name}"]))
-        let window = Self.normalizedTmuxHookValue(Self.runTmuxForHook(arguments: ["display-message", "-p", "#{window_index}"]))
-        let pane = Self.normalizedTmuxHookValue(Self.runTmuxForHook(arguments: ["display-message", "-p", "#{pane_index}"]))
         let location = [window, pane].compactMap { value -> String? in
             guard let value, !value.isEmpty else { return nil }
             return value
         }.joined(separator: ".")
-        if let session, !session.isEmpty, !location.isEmpty { return "tmux \(session):\(location)" }
-        if let session, !session.isEmpty { return "tmux \(session)" }
-        if !location.isEmpty { return "tmux pane \(location)" }
-        return nil
-    }
+        let subtitle: String?
+        if let session, !session.isEmpty, !location.isEmpty { subtitle = "tmux \(session):\(location)" }
+        else if let session, !session.isEmpty { subtitle = "tmux \(session)" }
+        else if !location.isEmpty { subtitle = "tmux pane \(location)" }
+        else { subtitle = nil }
 
-    private func defaultNotificationBodyForCaller() -> String? {
-        guard ProcessInfo.processInfo.environment["TMUX"]?.isEmpty == false else { return nil }
-        let command = Self.normalizedTmuxHookValue(Self.runTmuxForHook(arguments: ["display-message", "-p", "#{pane_current_command}"]))
-        let path = Self.normalizedTmuxHookValue(Self.runTmuxForHook(arguments: ["display-message", "-p", "#{pane_current_path}"]))
-        var parts: [String] = []
+        var bodyParts: [String] = []
         if let command, !command.isEmpty {
-            parts.append(
+            bodyParts.append(
                 String.localizedStringWithFormat(
                     String(localized: "cli.tmuxBridge.notification.body.command", defaultValue: "Command: %@"),
                     command
@@ -11104,14 +11120,16 @@ struct CMUXCLI {
             )
         }
         if let path, !path.isEmpty {
-            parts.append(
+            bodyParts.append(
                 String.localizedStringWithFormat(
                     String(localized: "cli.tmuxBridge.notification.body.cwd", defaultValue: "Directory: %@"),
                     path
                 )
             )
         }
-        return parts.isEmpty ? nil : parts.joined(separator: "\n")
+        let body = bodyParts.isEmpty ? nil : bodyParts.joined(separator: "\n")
+
+        return TmuxNotificationDefaults(title: title, subtitle: subtitle, body: body)
     }
 
     private func notificationBodyMaxBytes(from args: [String]) throws -> Int {
