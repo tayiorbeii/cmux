@@ -1370,6 +1370,8 @@ struct CopyModeCursor: Equatable {
 
 enum TerminalKeyboardCopyModeCursorDirection: Equatable {
     case up, down, left, right
+    case nextWordStart, prevWordStart, wordEnd
+    case lineStart, firstNonWhitespace, lineEnd
 }
 
 enum TerminalKeyboardCopyModeAction: Equatable {
@@ -1567,11 +1569,19 @@ func terminalKeyboardCopyModeAction(
         }
         // Bare "g" is a prefix key (e.g. gg); handled in resolve.
         return nil
-    case "0", "^":
-        return hasSelection ? .adjustSelection(.beginningOfLine) : nil
+    case "w":
+        return .moveCursor(.nextWordStart)
+    case "b":
+        return .moveCursor(.prevWordStart)
+    case "e":
+        return .moveCursor(.wordEnd)
+    case "0":
+        return .moveCursor(.lineStart)
+    case "^":
+        return .moveCursor(.firstNonWhitespace)
     case "$", "4":
         guard chars == "$" || normalized == [.shift] else { return nil }
-        return hasSelection ? .adjustSelection(.endOfLine) : nil
+        return .moveCursor(.lineEnd)
     case "{", "[":
         guard chars == "{" || normalized == [.shift] else { return nil }
         return .jumpToPrompt(-1)
@@ -7319,6 +7329,97 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
+    // MARK: - Copy-Mode Word-Boundary Helpers
+
+    /// Word character classification for copy-mode motions.
+    /// Matches Vim's `iskeyword`-style behavior: letters, digits, underscore
+    /// are "word" characters; everything else is a boundary.
+    private func isCopyModeWordChar(_ c: Character) -> Bool {
+        return c.isLetter || c.isNumber || c == "_"
+    }
+
+    /// Find the start of the next word from a given column on a line.
+    /// Returns nil if no next word exists on this line.
+    private func findNextWordStart(in line: String, from col: Int) -> Int? {
+        guard col < line.count else { return nil }
+        let chars = Array(line)
+        var i = col
+
+        // Skip current word characters.
+        if i < chars.count, isCopyModeWordChar(chars[i]) {
+            while i < chars.count, isCopyModeWordChar(chars[i]) { i += 1 }
+        }
+        // Skip whitespace/non-word.
+        while i < chars.count, !isCopyModeWordChar(chars[i]) { i += 1 }
+        // Found start of next word.
+        return i < chars.count ? i : nil
+    }
+
+    /// Find the start of the current or previous word from a given column.
+    private func findPrevWordStart(in line: String, from col: Int) -> Int {
+        let chars = Array(line)
+        var i = min(col, chars.count - 1)
+        if i < 0 { return 0 }
+
+        // Skip whitespace backwards.
+        while i >= 0, !isCopyModeWordChar(chars[i]) { i -= 1 }
+        // Skip word characters backwards.
+        while i >= 0, isCopyModeWordChar(chars[i]) { i -= 1 }
+        // i is now at the boundary before the word. Return i+1.
+        return max(0, i + 1)
+    }
+
+    /// Find the end of the current or next word from a given column.
+    private func findWordEnd(in line: String, from col: Int) -> Int? {
+        let chars = Array(line)
+        guard col < chars.count else { return nil }
+        var i = col
+
+        // If on whitespace, skip to next word start.
+        if !isCopyModeWordChar(chars[i]) {
+            while i < chars.count, !isCopyModeWordChar(chars[i]) { i += 1 }
+            guard i < chars.count else { return nil }
+        }
+        // i is now at a word character. Skip to end of word.
+        while i < chars.count, isCopyModeWordChar(chars[i]) { i += 1 }
+        return i - 1  // last character of the word
+    }
+
+    /// Find the first non-whitespace column on a line.
+    private func findFirstNonWhitespace(in line: String) -> Int {
+        let chars = Array(line)
+        for (i, c) in chars.enumerated() {
+            if !c.isWhitespace { return i }
+        }
+        return 0
+    }
+
+    /// Read the text content of a single screen row.
+    /// Uses the Ghostty selection API to read one row's worth of text.
+    private func readLineContent(surface: ghostty_surface_t, screenRow: Int) -> String? {
+        let cols = Int(ghostty_surface_size(surface).columns)
+        guard cols > 0 else { return nil }
+
+        // Set a 1-row selection to read just this line.
+        let r = UInt32(screenRow)
+        _ = ghostty_surface_set_selection_range_compat(
+            surface, r, 0, r, UInt32(cols - 1), false
+        )
+
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_selection(surface, &text) else {
+            return nil
+        }
+        defer { ghostty_surface_free_text(surface, &text) }
+
+        guard let ptr = text.text, text.text_len > 0 else { return nil }
+        let lineData = Data(bytes: ptr, count: Int(text.text_len))
+        guard let str = String(data: lineData, encoding: .utf8) else { return nil }
+
+        // Trim trailing newlines but keep the line content.
+        return str.replacingOccurrences(of: "\n", with: "")
+    }
+
     /// Move the copy-mode cursor in the given direction.
     private func moveCopyModeCursor(
         surface: ghostty_surface_t,
@@ -7348,10 +7449,80 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             }
         case .right:
             cursor.screenCol = min(viewportCols - 1, cursor.screenCol + 1)
+
+        case .nextWordStart:
+            // Iterate up to 50 lines to find the next word start.
+            var row = cursor.screenRow
+            var col = cursor.screenCol
+            for _ in 0..<50 {
+                guard let line = readLineContent(surface: surface, screenRow: row) else { break }
+                if let next = findNextWordStart(in: line, from: col) {
+                    cursor.screenCol = next
+                    let rowDelta = row - cursor.screenRow
+                    cursor.screenRow = row
+                    cursor.viewportRow += rowDelta
+                    break
+                }
+                // No next word on this line — advance to next line, col 0.
+                row += 1
+                col = 0
+            }
+            // If we advanced rows, update cursor.
+            if row != cursor.screenRow {
+                let rowDelta = row - cursor.screenRow
+                cursor.screenRow = row
+                cursor.viewportRow += rowDelta
+                cursor.screenCol = 0
+            }
+
+        case .prevWordStart:
+            // Iterate up to 50 lines to find the previous word start.
+            var row = cursor.screenRow
+            var col = cursor.screenCol
+            for _ in 0..<50 {
+                if row < 0 { break }
+                guard let line = readLineContent(surface: surface, screenRow: row) else { break }
+                let prev = findPrevWordStart(in: line, from: col)
+                if prev < col {
+                    cursor.screenCol = prev
+                    let rowDelta = row - cursor.screenRow
+                    cursor.screenRow = row
+                    cursor.viewportRow += rowDelta
+                    break
+                }
+                // Already at first word — try previous line, from end.
+                if row <= 0 { break }
+                row -= 1
+                col = max(0, viewportCols - 1)
+            }
+            // If we moved rows, update cursor.
+            if row != cursor.screenRow {
+                let rowDelta = row - cursor.screenRow
+                cursor.screenRow = row
+                cursor.viewportRow += rowDelta
+                cursor.screenCol = col
+            }
+
+        case .wordEnd:
+            if let line = readLineContent(surface: surface, screenRow: cursor.screenRow),
+               let end = findWordEnd(in: line, from: cursor.screenCol) {
+                cursor.screenCol = end
+            }
+
+        case .lineStart:
+            cursor.screenCol = 0
+
+        case .firstNonWhitespace:
+            if let line = readLineContent(surface: surface, screenRow: cursor.screenRow) {
+                cursor.screenCol = findFirstNonWhitespace(in: line)
+            }
+
+        case .lineEnd:
+            cursor.screenCol = viewportCols - 1
         }
 
-        // Update preferred column for vertical motions.
-        if direction == .up || direction == .down {
+        // Update preferred column for vertical motions and lineEnd.
+        if direction == .up || direction == .down || direction == .lineEnd {
             copyPreferredCol = cursor.screenCol
         }
 
