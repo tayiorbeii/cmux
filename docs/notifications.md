@@ -229,7 +229,7 @@ Three tmux alert hooks are installed globally:
 
 Each hook calls `cmux hooks feed --source tmux-bridge` with pane+socket metadata, including tmux's pane title, window name, and current directory when available. The cmux socket routes each notification to the correct workspace and includes that context in the notification body.
 
-For rich notification content from programs running inside tmux, prefer calling `cmux notify --title ... --body ...` directly. tmux consumes unwrapped OSC notification sequences such as `OSC 777`, so by the time cmux receives tmux's forwarded bell there is no title/body payload left to recover. The `cmux notify` CLI uses the cmux socket instead of terminal escape sequences and includes tmux pane metadata so notifications are routed back to the originating pane. For small shell scripts, `cmux notify --title "Build done" "All tests passed"` is equivalent to passing `--body`, `--body -`/`--message -` read stdin explicitly, and piped stdin becomes the notification body when no body argument is provided. stdin bodies keep the last 16 KB before sending to the socket so accidental large logs stay lightweight while preserving the most recent output.
+For rich notification content from programs running inside tmux, prefer calling `cmux notify --title ... --body ...` directly. tmux consumes unwrapped OSC notification sequences such as `OSC 777`, so by the time cmux receives tmux's forwarded bell there is no title/body payload left to recover. The `cmux notify` CLI uses the cmux socket instead of terminal escape sequences and includes tmux pane metadata so notifications are routed back to the originating pane. For small shell scripts, `cmux notify --title "Build done" "All tests passed"` is equivalent to passing `--body`, `--body -`/`--message -` read stdin explicitly, `--body-file` reads from a log file, and piped stdin becomes the notification body when no body argument is provided. stdin/file bodies keep the last 16 KB before sending to the socket so accidental large logs stay lightweight while preserving the most recent output.
 
 ### Prerequisites
 
@@ -306,7 +306,7 @@ cmux sets these in child shells:
 ## CLI Commands
 
 ```
-cmux notify --title <text> [--subtitle <text>] [--body <text|-> | --message <text|-> | <body> | stdin] [--workspace <id|ref>] [--surface <id|ref>]
+cmux notify --title <text> [--subtitle <text>] [--body <text|-> | --message <text|-> | --body-file <path|-> | <body> | stdin] [--workspace <id|ref>] [--surface <id|ref>]
 cmux list-notifications
 cmux dismiss-notification (--id <notification-id> | --all-read)
 cmux mark-notification-read (--id <notification-id> | --workspace <id|ref> [--surface <id|ref>] | --all)

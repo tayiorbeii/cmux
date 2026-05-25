@@ -2215,7 +2215,7 @@ struct CMUXCLI {
     // Presentation flags are global, but command option values can also look like flags.
     private static let commandOptionsWithValues: Set<String> = [
         "--action", "--after-workspace", "--agent", "--amount", "--arch",
-        "--attr", "--before-workspace", "--body", "--color", "--command",
+        "--attr", "--before-workspace", "--body", "--body-file", "--color", "--command",
         "--config", "--cwd", "--description", "--direction", "--domain",
         "--dx", "--dy", "--email", "--event", "--expires", "--focus",
         "--function", "--id", "--image", "--index", "--key", "--layout",
@@ -3662,10 +3662,17 @@ struct CMUXCLI {
             let title = optionValue(commandArgs, name: "--title") ?? "Notification"
             let subtitle = optionValue(commandArgs, name: "--subtitle") ?? ""
             let explicitBodyArgument = optionValue(commandArgs, name: "--body") ?? optionValue(commandArgs, name: "--message")
-            let explicitBody = explicitBodyArgument == "-" ? notificationBodyFromStandardInputIfAvailable() : explicitBodyArgument
+            let explicitBody: String?
+            if let explicitBodyArgument {
+                explicitBody = explicitBodyArgument == "-" ? notificationBodyFromStandardInputIfAvailable() : explicitBodyArgument
+            } else if let bodyFile = optionValue(commandArgs, name: "--body-file") {
+                explicitBody = try notificationBodyFromFileArgument(bodyFile)
+            } else {
+                explicitBody = nil
+            }
             let positionalBody = positionalArgumentsExcludingOptions(
                 commandArgs,
-                optionsWithValues: ["--title", "--subtitle", "--body", "--message", "--workspace", "--surface"]
+                optionsWithValues: ["--title", "--subtitle", "--body", "--body-file", "--message", "--workspace", "--surface"]
             ).joined(separator: " ")
             let stdinBody = explicitBody == nil && positionalBody.isEmpty ? notificationBodyFromStandardInputIfAvailable() : nil
             let body = explicitBody ?? (positionalBody.isEmpty ? (stdinBody ?? "") : positionalBody)
@@ -10550,6 +10557,7 @@ struct CMUXCLI {
               --subtitle <text>      Notification subtitle
               --body <text|->        Notification body (- reads stdin)
               --message <text|->     Alias for --body
+              --body-file <path|->   Read notification body from a file or stdin
               --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
               --surface <id|ref>     Target surface (default: $CMUX_SURFACE_ID)
 
@@ -10558,7 +10566,8 @@ struct CMUXCLI {
               cmux notify --title "Build done" "All tests passed"
               make 2>&1 | cmux notify --title "Build finished"
               git diff | cmux notify --title "Diff ready" --body -
-              # stdin bodies are capped to keep socket notifications lightweight
+              cmux notify --title "Log ready" --body-file /tmp/build.log
+              # stdin and file bodies are capped to keep socket notifications lightweight
               cmux notify --title "Error" --subtitle "test.swift" --body "Line 42: syntax error"
             """
         case "list-notifications":
@@ -11045,13 +11054,26 @@ struct CMUXCLI {
 
     private func notificationBodyFromStandardInputIfAvailable() -> String? {
         guard isatty(STDIN_FILENO) == 0 else { return nil }
+        return notificationBodyFromFileHandle(FileHandle.standardInput)
+    }
+
+    private func notificationBodyFromFileArgument(_ argument: String) throws -> String? {
+        let trimmed = argument.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed == "-" { return notificationBodyFromFileHandle(FileHandle.standardInput) }
+        let expandedPath = (trimmed as NSString).expandingTildeInPath
+        let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: expandedPath))
+        defer { try? handle.close() }
+        return notificationBodyFromFileHandle(handle)
+    }
+
+    private func notificationBodyFromFileHandle(_ handle: FileHandle) -> String? {
         let maxBytes = 16 * 1024
         let chunkSize = 4 * 1024
         var bodyBytes = Data()
         var isTruncated = false
 
         while true {
-            guard let chunk = try? FileHandle.standardInput.read(upToCount: chunkSize),
+            guard let chunk = try? handle.read(upToCount: chunkSize),
                   !chunk.isEmpty else {
                 break
             }
