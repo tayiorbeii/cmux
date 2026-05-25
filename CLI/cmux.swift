@@ -23544,6 +23544,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let command = optionValue(commandArgs, name: "--command")
         let paneTitle = optionValue(commandArgs, name: "--pane-title")
         let windowName = optionValue(commandArgs, name: "--window-name")
+        let paneCurrentPath = optionValue(commandArgs, name: "--cwd")
         let explicitMessage = optionValue(commandArgs, name: "--message")
         let explicitWorkspaceId = optionValue(commandArgs, name: "--workspace")
         let explicitSurfaceId = optionValue(commandArgs, name: "--surface")
@@ -23619,6 +23620,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 String.localizedStringWithFormat(
                     String(localized: "cli.tmuxBridge.notification.body.command", defaultValue: "Command: %@"),
                     command
+                )
+            )
+        }
+        if let paneCurrentPath, !paneCurrentPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            bodyParts.append(
+                String.localizedStringWithFormat(
+                    String(localized: "cli.tmuxBridge.notification.body.cwd", defaultValue: "Directory: %@"),
+                    paneCurrentPath
                 )
             )
         }
@@ -24294,7 +24303,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     private func tmuxBridgeHookCommand(event: String) -> String {
         let cli = tmuxBridgeCLICommand()
         let socketArgument = tmuxBridgeSocketArgument()
-        let bridge = "\(cli)\(socketArgument) hooks feed --source tmux-bridge --event \(event) --pane-id #{q:pane_id} --pane-tty #{q:pane_tty} --session #{q:session_name} --window #{q:window_index} --pane #{q:pane_index} --pane-title #{q:pane_title} --window-name #{q:window_name} --command #{q:pane_current_command} # cmux-tmux-bridge"
+        let bridge = "\(cli)\(socketArgument) hooks feed --source tmux-bridge --event \(event) --pane-id #{q:pane_id} --pane-tty #{q:pane_tty} --session #{q:session_name} --window #{q:window_index} --pane #{q:pane_index} --pane-title #{q:pane_title} --window-name #{q:window_name} --cwd #{q:pane_current_path} --command #{q:pane_current_command} # cmux-tmux-bridge"
         return "run-shell -b \(shellQuote(bridge))"
     }
 
