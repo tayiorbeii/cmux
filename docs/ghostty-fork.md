@@ -13,14 +13,16 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `fe972c095`, based on `41ab6c5ab`, with the
-manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53
-plus the Metal renderer row rebuild guard for cmux issue #3369. This head keeps
+Current cmux pinned fork head: `e17350663`, based on `aef980e27`, with the
+manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53,
+the Metal renderer row rebuild guard for cmux issue #3369, the crash-report
+subdirectory override, and the copy-mode selection range C API. This head keeps
 the cmux theme picker hooks, exposes the manual surface IO needed by libghostty
-iOS clients, and bounds shaped glyph iteration during IME/preedit row rebuilds.
-The corresponding prebuilt archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-fe972c09579a7943f6fe9607fdd24f0f7c999cb1
-and pinned in `scripts/ghosttykit-checksums.txt`.
+iOS clients, bounds shaped glyph iteration during IME/preedit row rebuilds, and
+lets cmux set keyboard copy-mode selections by screen-coordinate range.
+No prebuilt archive is pinned for this head yet; `ensure-ghosttykit.sh` falls
+back to a local ReleaseFast GhosttyKit build until an `xcframework-e17350663...`
+release and checksum are published.
 
 ### 1) macOS display link restart on display changes
 
@@ -189,13 +191,26 @@ tend to conflict together during rebases.
   - The first commit intentionally preserves the panic so cmux can keep the
     required failing-test-then-fix history for issue #3369.
 
-The current cmux pin is the head listed above. It is reachable from
-`manaflow-ai/ghostty` through the `xcframework-fe972c09579a7943f6fe9607fdd24f0f7c999cb1`
-release tag and branch `issue-3369-metal-renderer-crash`.
-Published `xcframework-fe972c09579a7943f6fe9607fdd24f0f7c999cb1` and pinned its
-archive checksum in `scripts/ghosttykit-checksums.txt`. The release and checksum
-pin must be regenerated whenever this commit changes, even for comment-only
-amends, because the release tag is keyed by the Ghostty commit SHA.
+### 12) Copy-mode set_selection_range C API
+
+- Commit: `e17350663` (ghostty: add ghostty_surface_set_selection_range C API)
+- Files:
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+- Summary:
+  - Adds `ghostty_surface_set_selection_range` so cmux can set an arbitrary
+    screen-coordinate selection from keyboard copy mode.
+  - The API returns `false` when either endpoint cannot be pinned to the active
+    screen buffer and otherwise marks the selection dirty and queues a render.
+  - Existing `ghostty_surface_select_cursor_cell` and
+    `ghostty_surface_clear_selection` behavior is unchanged.
+
+The current cmux pin is the head listed above. Until a prebuilt archive is
+published for `e17350663`, `ensure-ghosttykit.sh` will fall back to a local
+ReleaseFast GhosttyKit build. The release and checksum pin must be regenerated
+whenever this commit changes, even for comment-only amends, because the release
+tag is keyed by the Ghostty commit SHA.
 
 ## Upstreamed fork changes
 
@@ -288,6 +303,10 @@ These files change frequently upstream; be careful when rebasing the fork:
 - `include/ghostty.h`, `src/Surface.zig`, `src/apprt/embedded.zig`
   - Upstream removed cmux-used selection exports. Preserve the re-exported
     `ghostty_surface_select_cursor_cell` and `ghostty_surface_clear_selection` functions.
+  - Keep `ghostty_surface_set_selection_range` adjacent to the existing cmux
+    selection C APIs in both the header and embedded runtime. If upstream adds
+    nearby selection APIs, resolve conflicts by preserving all cmux-specific
+    exports and the existing cursor-selection behavior.
 
 - `src/renderer/generic.zig`
   - The `macos-background-from-layer` check sits next to the glass-style check in `updateFrame`.
