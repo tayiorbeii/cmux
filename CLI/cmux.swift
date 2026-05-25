@@ -3663,7 +3663,8 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
         case "notify":
-            let title = optionValue(commandArgs, name: "--title") ?? "Notification"
+            let explicitTitle = optionValue(commandArgs, name: "--title")?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let title = explicitTitle?.isEmpty == false ? explicitTitle! : (defaultNotificationTitleForCaller() ?? "Notification")
             let subtitle = optionValue(commandArgs, name: "--subtitle") ?? ""
             let bodyMaxBytes = try notificationBodyMaxBytes(from: commandArgs)
             let explicitBodyArgument = optionValue(commandArgs, name: "--body") ?? optionValue(commandArgs, name: "--message")
@@ -11056,6 +11057,19 @@ struct CMUXCLI {
             result.append(arg)
         }
         return result
+    }
+
+    private func defaultNotificationTitleForCaller() -> String? {
+        guard ProcessInfo.processInfo.environment["TMUX"]?.isEmpty == false else { return nil }
+        let candidates = [
+            Self.normalizedTmuxHookValue(Self.runTmuxForHook(arguments: ["display-message", "-p", "#{pane_title}"])),
+            Self.normalizedTmuxHookValue(Self.runTmuxForHook(arguments: ["display-message", "-p", "#{window_name}"])),
+            Self.normalizedTmuxHookValue(Self.runTmuxForHook(arguments: ["display-message", "-p", "#{pane_current_command}"])),
+        ]
+        return candidates.compactMap { value -> String? in
+            guard let value, !value.isEmpty, value != "tmux" else { return nil }
+            return value
+        }.first
     }
 
     private func notificationBodyMaxBytes(from args: [String]) throws -> Int {
