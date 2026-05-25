@@ -24262,8 +24262,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
     private func tmuxBridgeHookCommand(event: String) -> String {
         let cli = tmuxBridgeCLICommand()
-        let bridge = "\(cli) hooks feed --source tmux-bridge --event \(event) --pane-id #{q:pane_id} --pane-tty #{q:pane_tty} --session #{q:session_name} --window #{q:window_index} --pane #{q:pane_index} --command #{q:pane_current_command} # cmux-tmux-bridge"
+        let socketArgument = tmuxBridgeSocketArgument()
+        let bridge = "\(cli)\(socketArgument) hooks feed --source tmux-bridge --event \(event) --pane-id #{q:pane_id} --pane-tty #{q:pane_tty} --session #{q:session_name} --window #{q:window_index} --pane #{q:pane_index} --command #{q:pane_current_command} # cmux-tmux-bridge"
         return "run-shell -b \(shellQuote(bridge))"
+    }
+
+    private func tmuxBridgeSocketArgument() -> String {
+        let rawPath = ProcessInfo.processInfo.environment["CMUX_SOCKET_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let rawPath, !rawPath.isEmpty else { return "" }
+        return " --socket \(shellQuote(rawPath))"
     }
 
     private func tmuxBridgeCLICommand() -> String {

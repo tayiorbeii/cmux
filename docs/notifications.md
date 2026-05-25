@@ -234,7 +234,7 @@ For rich notification content from programs running inside tmux, prefer calling 
 ### Prerequisites
 
 - You must run the install from a shell **inside cmux** (so `CMUX_SOCKET_PATH` is set).
-- The installer prefers cmux's bundled CLI path when available, so the installed hooks keep working even if tmux's `PATH` does not resolve `cmux` later.
+- The installer embeds the current cmux socket path and prefers cmux's bundled CLI path when available, so the installed hooks keep working even if tmux's environment later loses `CMUX_SOCKET_PATH` or tmux's `PATH` does not resolve `cmux`.
 
 ### Install
 
