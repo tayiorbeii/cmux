@@ -3396,6 +3396,14 @@ class GhosttyApp {
         }
     }
 
+    private func terminalBellNotificationBody(tabTitle: String) -> String {
+        let normalizedTitle = tabTitle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalizedTitle == "tmux" || normalizedTitle.contains("tmux") {
+            return String(localized: "notification.tmuxBell.body", defaultValue: "Bell received from tmux")
+        }
+        return String(localized: "notification.terminalBell.body", defaultValue: "Terminal bell")
+    }
+
     private func applyDefaultBackground(
         color: NSColor,
         opacity: Double,
@@ -3762,7 +3770,7 @@ class GhosttyApp {
                         surfaceId: surfaceId,
                         title: tabTitle,
                         subtitle: "",
-                        body: String(localized: "notification.terminalBell.body", defaultValue: "Terminal bell"),
+                        body: self.terminalBellNotificationBody(tabTitle: tabTitle),
                         cooldownKey: "bell:\(tabId.uuidString)",
                         cooldownInterval: 3.0
                     )
@@ -3883,7 +3891,7 @@ class GhosttyApp {
                     surfaceId: surfaceId,
                     title: tabTitle,
                     subtitle: "",
-                    body: String(localized: "notification.terminalBell.body", defaultValue: "Terminal bell"),
+                    body: self.terminalBellNotificationBody(tabTitle: tabTitle),
                     cooldownKey: "bell:\(tabId.uuidString)",
                     cooldownInterval: 3.0
                 )
