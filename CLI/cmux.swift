@@ -11068,7 +11068,7 @@ struct CMUXCLI {
         ]
         return candidates.compactMap { value -> String? in
             guard let value, !value.isEmpty, value != "tmux" else { return nil }
-            return value
+            return conciseNotificationTitleContext(value)
         }.first
     }
 
@@ -23769,21 +23769,23 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     }
 
     private func tmuxBridgeNotificationTitle(baseTitle: String, paneTitle: String?, windowName: String?) -> String {
-        let maxContextCharacters = 80
-        let context = [paneTitle, windowName].compactMap { rawValue -> String? in
-            guard let value = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
-                return nil
-            }
-            if value.count <= maxContextCharacters { return value }
-            let endIndex = value.index(value.startIndex, offsetBy: maxContextCharacters)
-            return String(value[..<endIndex]) + "…"
-        }.first
+        let context = [paneTitle, windowName].compactMap { conciseNotificationTitleContext($0) }.first
         guard let context else { return baseTitle }
         return String.localizedStringWithFormat(
             String(localized: "cli.tmuxBridge.notification.title.withContext", defaultValue: "%@ — %@"),
             baseTitle,
             context
         )
+    }
+
+    private func conciseNotificationTitleContext(_ rawValue: String?) -> String? {
+        let maxContextCharacters = 80
+        guard let value = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        if value.count <= maxContextCharacters { return value }
+        let endIndex = value.index(value.startIndex, offsetBy: maxContextCharacters)
+        return String(value[..<endIndex]) + "…"
     }
 
     private static func tmuxPaneTTY(paneId: String) -> String? {
