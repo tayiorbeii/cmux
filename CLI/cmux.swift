@@ -2212,13 +2212,14 @@ struct CMUXCLI {
         ?? defaultBrowserSettingsDomain
     }
 
-    private static let notificationBodyMaxBytes = 16 * 1024
+    private static let notificationBodyDefaultMaxBytes = 16 * 1024
+    private static let notificationBodyAllowedMaxBytes = 64 * 1024
     private static let notificationBodyReadChunkSize = 4 * 1024
 
     // Presentation flags are global, but command option values can also look like flags.
     private static let commandOptionsWithValues: Set<String> = [
         "--action", "--after-workspace", "--agent", "--amount", "--arch",
-        "--attr", "--before-workspace", "--body", "--body-file", "--color", "--command",
+        "--attr", "--before-workspace", "--body", "--body-file", "--body-max-bytes", "--color", "--command",
         "--config", "--cwd", "--description", "--direction", "--domain",
         "--dx", "--dy", "--email", "--event", "--expires", "--focus",
         "--function", "--id", "--image", "--index", "--key", "--layout",
@@ -3664,20 +3665,21 @@ struct CMUXCLI {
         case "notify":
             let title = optionValue(commandArgs, name: "--title") ?? "Notification"
             let subtitle = optionValue(commandArgs, name: "--subtitle") ?? ""
+            let bodyMaxBytes = try notificationBodyMaxBytes(from: commandArgs)
             let explicitBodyArgument = optionValue(commandArgs, name: "--body") ?? optionValue(commandArgs, name: "--message")
             let explicitBody: String?
             if let explicitBodyArgument {
-                explicitBody = explicitBodyArgument == "-" ? notificationBodyFromStandardInputIfAvailable() : explicitBodyArgument
+                explicitBody = explicitBodyArgument == "-" ? notificationBodyFromStandardInputIfAvailable(maxBytes: bodyMaxBytes) : explicitBodyArgument
             } else if let bodyFile = optionValue(commandArgs, name: "--body-file") {
-                explicitBody = try notificationBodyFromFileArgument(bodyFile)
+                explicitBody = try notificationBodyFromFileArgument(bodyFile, maxBytes: bodyMaxBytes)
             } else {
                 explicitBody = nil
             }
             let positionalBody = positionalArgumentsExcludingOptions(
                 commandArgs,
-                optionsWithValues: ["--title", "--subtitle", "--body", "--body-file", "--message", "--workspace", "--surface"]
+                optionsWithValues: ["--title", "--subtitle", "--body", "--body-file", "--body-max-bytes", "--message", "--workspace", "--surface"]
             ).joined(separator: " ")
-            let stdinBody = explicitBody == nil && positionalBody.isEmpty ? notificationBodyFromStandardInputIfAvailable() : nil
+            let stdinBody = explicitBody == nil && positionalBody.isEmpty ? notificationBodyFromStandardInputIfAvailable(maxBytes: bodyMaxBytes) : nil
             let body = explicitBody ?? (positionalBody.isEmpty ? (stdinBody ?? "") : positionalBody)
             let explicitWorkspaceArg = optionValue(commandArgs, name: "--workspace")
             let env = ProcessInfo.processInfo.environment
@@ -10561,6 +10563,7 @@ struct CMUXCLI {
               --body <text|->        Notification body (- reads stdin)
               --message <text|->     Alias for --body
               --body-file <path|->   Read notification body from a file or stdin
+              --body-max-bytes <n>   Max stdin/file body bytes (1..65536, default: 16384)
               --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
               --surface <id|ref>     Target surface (default: $CMUX_SURFACE_ID)
 
@@ -11055,14 +11058,24 @@ struct CMUXCLI {
         return result
     }
 
-    private func notificationBodyFromStandardInputIfAvailable() -> String? {
-        guard isatty(STDIN_FILENO) == 0 else { return nil }
-        return notificationBodyFromFileHandle(FileHandle.standardInput)
+    private func notificationBodyMaxBytes(from args: [String]) throws -> Int {
+        guard let rawValue = optionValue(args, name: "--body-max-bytes") else {
+            return Self.notificationBodyDefaultMaxBytes
+        }
+        guard let value = Int(rawValue), value > 0, value <= Self.notificationBodyAllowedMaxBytes else {
+            throw CLIError(message: "notify: --body-max-bytes must be between 1 and \(Self.notificationBodyAllowedMaxBytes)")
+        }
+        return value
     }
 
-    private func notificationBodyFromFileArgument(_ argument: String) throws -> String? {
+    private func notificationBodyFromStandardInputIfAvailable(maxBytes: Int) -> String? {
+        guard isatty(STDIN_FILENO) == 0 else { return nil }
+        return notificationBodyFromFileHandle(FileHandle.standardInput, maxBytes: maxBytes)
+    }
+
+    private func notificationBodyFromFileArgument(_ argument: String, maxBytes: Int) throws -> String? {
         let trimmed = argument.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed == "-" { return notificationBodyFromFileHandle(FileHandle.standardInput) }
+        if trimmed == "-" { return notificationBodyFromFileHandle(FileHandle.standardInput, maxBytes: maxBytes) }
         let expandedPath = (trimmed as NSString).expandingTildeInPath
         let url = URL(fileURLWithPath: expandedPath)
         let handle = try FileHandle(forReadingFrom: url)
@@ -11070,39 +11083,45 @@ struct CMUXCLI {
 
         let attributes = try? FileManager.default.attributesOfItem(atPath: expandedPath)
         let fileSize = (attributes?[.size] as? NSNumber)?.uint64Value
-        if let fileSize, fileSize > UInt64(Self.notificationBodyMaxBytes) {
-            try? handle.seek(toOffset: fileSize - UInt64(Self.notificationBodyMaxBytes))
-            let data = (try? handle.read(upToCount: Self.notificationBodyMaxBytes)) ?? Data()
-            return notificationBody(from: data, isTruncated: true)
+        if let fileSize, fileSize > UInt64(maxBytes) {
+            try? handle.seek(toOffset: fileSize - UInt64(maxBytes))
+            let data = (try? handle.read(upToCount: maxBytes)) ?? Data()
+            return notificationBody(from: data, isTruncated: true, maxBytes: maxBytes)
         }
-        return notificationBodyFromFileHandle(handle)
+        return notificationBodyFromFileHandle(handle, maxBytes: maxBytes)
     }
 
-    private func notificationBodyFromFileHandle(_ handle: FileHandle) -> String? {
+    private func notificationBodyFromFileHandle(_ handle: FileHandle, maxBytes: Int) -> String? {
         var bodyBytes = Data()
         var isTruncated = false
+        let chunkSize = min(Self.notificationBodyReadChunkSize, maxBytes)
 
         while true {
-            guard let chunk = try? handle.read(upToCount: Self.notificationBodyReadChunkSize),
+            guard let chunk = try? handle.read(upToCount: chunkSize),
                   !chunk.isEmpty else {
                 break
             }
             bodyBytes.append(chunk)
-            if bodyBytes.count > Self.notificationBodyMaxBytes {
+            if bodyBytes.count > maxBytes {
                 isTruncated = true
-                bodyBytes = Data(bodyBytes.suffix(Self.notificationBodyMaxBytes))
+                bodyBytes = Data(bodyBytes.suffix(maxBytes))
             }
         }
 
-        return notificationBody(from: bodyBytes, isTruncated: isTruncated)
+        return notificationBody(from: bodyBytes, isTruncated: isTruncated, maxBytes: maxBytes)
     }
 
-    private func notificationBody(from bodyBytes: Data, isTruncated: Bool) -> String? {
+    private func notificationBody(from bodyBytes: Data, isTruncated: Bool, maxBytes: Int) -> String? {
         guard !bodyBytes.isEmpty else { return nil }
         var text = String(decoding: bodyBytes, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
         if isTruncated {
-            text = String(localized: "cli.notify.stdin.truncatedToTail", defaultValue: "… (stdin truncated to last 16 KB)") + "\n" + text
+            let byteCount = ByteCountFormatter.string(fromByteCount: Int64(maxBytes), countStyle: .file)
+            let message = String.localizedStringWithFormat(
+                String(localized: "cli.notify.body.truncatedToTail", defaultValue: "… (body truncated to last %@)"),
+                byteCount
+            )
+            text = message + "\n" + text
         }
         return text
     }
