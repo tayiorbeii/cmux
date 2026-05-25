@@ -1378,6 +1378,8 @@ enum TerminalKeyboardCopyModeAction: Equatable {
     case exit
     case startSelection
     case startLineSelection
+    case startBlockSelection
+    case clearBlockMode
     case clearSelection
     case swapSelectionAnchor
     case copyAndExit
@@ -1487,7 +1489,8 @@ func terminalKeyboardCopyModeAction(
     keyCode: UInt16,
     charactersIgnoringModifiers: String?,
     modifierFlags: NSEvent.ModifierFlags,
-    hasSelection: Bool
+    hasSelection: Bool,
+    isBlockMode: Bool = false
 ) -> TerminalKeyboardCopyModeAction? {
     let normalized = terminalKeyboardCopyModeNormalizedModifiers(modifierFlags)
     let chars = terminalKeyboardCopyModeChars(charactersIgnoringModifiers)
@@ -1536,6 +1539,9 @@ func terminalKeyboardCopyModeAction(
         if chars == "e" || chars == "\u{05}" {
             return hasSelection ? .adjustSelection(.down) : .scrollLines(1)
         }
+        if chars == "\u{16}" {
+            return .startBlockSelection
+        }
         return nil
     }
 
@@ -1545,6 +1551,11 @@ func terminalKeyboardCopyModeAction(
     case "q":
         return .exit
     case "v":
+        // In block mode, v returns to regular visual (clears block flag only).
+        // Otherwise, v toggles visual mode.
+        if hasSelection, isBlockMode {
+            return .clearBlockMode
+        }
         return hasSelection ? .clearSelection : .startSelection
     case "V":
         return .startLineSelection
@@ -1602,6 +1613,7 @@ func terminalKeyboardCopyModeResolve(
     charactersIgnoringModifiers: String?,
     modifierFlags: NSEvent.ModifierFlags,
     hasSelection: Bool,
+    isBlockMode: Bool = false,
     state: inout TerminalKeyboardCopyModeInputState
 ) -> TerminalKeyboardCopyModeResolution {
     let normalized = terminalKeyboardCopyModeNormalizedModifiers(modifierFlags)
@@ -1666,7 +1678,8 @@ func terminalKeyboardCopyModeResolve(
         keyCode: keyCode,
         charactersIgnoringModifiers: charactersIgnoringModifiers,
         modifierFlags: modifierFlags,
-        hasSelection: hasSelection
+        hasSelection: hasSelection,
+        isBlockMode: isBlockMode
     ) else {
         state.reset()
         return .consume
@@ -6559,6 +6572,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// Visual mode anchor. Set when user presses `v`.
     /// The selection spans from anchor to cursor.
     private var copyVisualAnchor: CopyModeCursor?
+    /// True when visual block mode is active (Ctrl-v).
+    private var copyVisualBlockActive = false
     fileprivate var isKeyboardCopyModeActive: Bool { keyboardCopyModeActive }
     fileprivate var currentKeyStateIndicatorText: String? {
         if let name = keyTables.last {
@@ -7213,6 +7228,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyboardCopyModeInputState.reset()
         keyboardCopyModeVisualActive = false
         copyVisualAnchor = nil
+        copyVisualBlockActive = false
         keyboardCopyModeActive = active
         if active, let surface {
             // Compute cursor position from terminal cursor anchor.
@@ -7289,7 +7305,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let endCol   = UInt32(max(anchor.screenCol, cursor.screenCol))
 
         _ = ghostty_surface_set_selection_range_compat(
-            surface, startRow, startCol, endRow, endCol, false
+            surface, startRow, startCol, endRow, endCol, copyVisualBlockActive
         )
     }
 
@@ -7621,6 +7637,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             charactersIgnoringModifiers: event.charactersIgnoringModifiers,
             modifierFlags: event.modifierFlags,
             hasSelection: hasSelection,
+            isBlockMode: copyVisualBlockActive,
             state: &keyboardCopyModeInputState
         )
         guard case let .perform(action, count) = resolution else {
@@ -7630,6 +7647,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         switch action {
         case .exit:
             _ = ghostty_surface_clear_selection_compat(surface)
+            copyVisualBlockActive = false
             setKeyboardCopyModeActive(false)
         case .startSelection:
             // Enter visual mode. Anchor at current cursor position.
@@ -7639,12 +7657,27 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             guard let anchor = copyVisualAnchor else { break }
             let r = UInt32(anchor.screenRow), c = UInt32(anchor.screenCol)
             _ = ghostty_surface_set_selection_range_compat(surface, r, c, r, c, false)
+        case .startBlockSelection:
+            // Enter visual block mode. Anchor at current cursor position.
+            guard let cursor = copyCursor else { break }
+            copyVisualAnchor = cursor
+            keyboardCopyModeVisualActive = true
+            copyVisualBlockActive = true
+            // Set initial 1-cell rectangular selection at anchor.
+            let r = UInt32(cursor.screenRow), c = UInt32(cursor.screenCol)
+            _ = ghostty_surface_set_selection_range_compat(surface, r, c, r, c, true)
         case .clearSelection:
             keyboardCopyModeVisualActive = false
+            copyVisualBlockActive = false
             copyVisualAnchor = nil
             _ = ghostty_surface_clear_selection_compat(surface)
             // Re-place 1-cell cursor at current copy-cursor position.
             placeCopyModeCursor(surface: surface)
+        case .clearBlockMode:
+            // v pressed in block mode: return to regular visual mode.
+            copyVisualBlockActive = false
+            // Re-apply selection as non-rectangular.
+            setVisualSelection(surface: surface)
         case .startLineSelection:
             guard let cursor = copyCursor else { break }
             // Snap anchor to column 0 for full-line selection.
