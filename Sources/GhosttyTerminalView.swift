@@ -1375,7 +1375,9 @@ enum TerminalKeyboardCopyModeCursorDirection: Equatable {
 enum TerminalKeyboardCopyModeAction: Equatable {
     case exit
     case startSelection
+    case startLineSelection
     case clearSelection
+    case swapSelectionAnchor
     case copyAndExit
     case copyLineAndExit
     case scrollLines(Int)
@@ -1542,19 +1544,23 @@ func terminalKeyboardCopyModeAction(
         return .exit
     case "v":
         return hasSelection ? .clearSelection : .startSelection
+    case "V":
+        return .startLineSelection
+    case "o":
+        return .swapSelectionAnchor
     case "y":
         if normalized == [.shift], !hasSelection {
             return .copyLineAndExit
         }
         return hasSelection ? .copyAndExit : .copyLineAndExit
     case "j":
-        return hasSelection ? .adjustSelection(.down) : .moveCursor(.down)
+        return .moveCursor(.down)
     case "k":
-        return hasSelection ? .adjustSelection(.up) : .moveCursor(.up)
+        return .moveCursor(.up)
     case "h":
-        return hasSelection ? .adjustSelection(.left) : .moveCursor(.left)
+        return .moveCursor(.left)
     case "l":
-        return hasSelection ? .adjustSelection(.right) : .moveCursor(.right)
+        return .moveCursor(.right)
     case "g":
         if normalized == [.shift] {
             return hasSelection ? .adjustSelection(.end) : .scrollToBottom
@@ -6540,6 +6546,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// a 1-cell selection as a visible cursor. This flag determines whether
     /// movements should extend the selection (visual) or scroll the viewport.
     private var keyboardCopyModeVisualActive = false
+    /// Visual mode anchor. Set when user presses `v`.
+    /// The selection spans from anchor to cursor.
+    private var copyVisualAnchor: CopyModeCursor?
     fileprivate var isKeyboardCopyModeActive: Bool { keyboardCopyModeActive }
     fileprivate var currentKeyStateIndicatorText: String? {
         if let name = keyTables.last {
@@ -7193,6 +7202,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func setKeyboardCopyModeActive(_ active: Bool) {
         keyboardCopyModeInputState.reset()
         keyboardCopyModeVisualActive = false
+        copyVisualAnchor = nil
         keyboardCopyModeActive = active
         if active, let surface {
             // Compute cursor position from terminal cursor anchor.
@@ -7254,6 +7264,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let row = UInt32(cursor.screenRow)
         let col = UInt32(cursor.screenCol)
         _ = ghostty_surface_set_selection_range_compat(surface, row, col, row, col, false)
+    }
+
+    /// Set the Ghostty selection range from anchor to current cursor.
+    private func setVisualSelection(surface: ghostty_surface_t) {
+        guard keyboardCopyModeVisualActive,
+              let anchor = copyVisualAnchor,
+              let cursor = copyCursor else { return }
+
+        // Determine which end is "start" (top-left) and which is "end" (bottom-right).
+        let startRow = UInt32(min(anchor.screenRow, cursor.screenRow))
+        let startCol = UInt32(min(anchor.screenCol, cursor.screenCol))
+        let endRow   = UInt32(max(anchor.screenRow, cursor.screenRow))
+        let endCol   = UInt32(max(anchor.screenCol, cursor.screenCol))
+
+        _ = ghostty_surface_set_selection_range_compat(
+            surface, startRow, startCol, endRow, endCol, false
+        )
     }
 
     /// Update cursor viewport tracking after a scroll operation.
@@ -7427,13 +7454,55 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             _ = ghostty_surface_clear_selection_compat(surface)
             setKeyboardCopyModeActive(false)
         case .startSelection:
+            // Enter visual mode. Anchor at current cursor position.
+            copyVisualAnchor = copyCursor
             keyboardCopyModeVisualActive = true
+            // Set initial 1-cell selection at anchor position.
+            guard let anchor = copyVisualAnchor else { break }
+            let r = UInt32(anchor.screenRow), c = UInt32(anchor.screenCol)
+            _ = ghostty_surface_set_selection_range_compat(surface, r, c, r, c, false)
         case .clearSelection:
             keyboardCopyModeVisualActive = false
+            copyVisualAnchor = nil
             _ = ghostty_surface_clear_selection_compat(surface)
-            // Re-place 1-cell cursor at copy-mode cursor position.
+            // Re-place 1-cell cursor at current copy-cursor position.
             placeCopyModeCursor(surface: surface)
+        case .startLineSelection:
+            guard let cursor = copyCursor else { break }
+            // Snap anchor to column 0 for full-line selection.
+            var lineAnchor = cursor
+            lineAnchor.screenCol = 0
+            copyVisualAnchor = lineAnchor
+            keyboardCopyModeVisualActive = true
+            // Set initial selection on the full line.
+            let lineEnd = CopyModeCursor(
+                screenRow: cursor.screenRow,
+                screenCol: Int(ghostty_surface_size(surface).columns) - 1,
+                viewportRow: cursor.viewportRow
+            )
+            // Set selection from col 0 to end of line.
+            _ = ghostty_surface_set_selection_range_compat(
+                surface,
+                UInt32(lineAnchor.screenRow), 0,
+                UInt32(lineEnd.screenRow), UInt32(lineEnd.screenCol),
+                false
+            )
+            // Also set copyCursor to end of line so motions extend from there.
+            copyCursor = lineEnd
+        case .swapSelectionAnchor:
+            guard keyboardCopyModeVisualActive,
+                  let anchor = copyVisualAnchor,
+                  let cursor = copyCursor else { break }
+            // Swap: old cursor becomes new anchor, old anchor becomes new cursor.
+            copyVisualAnchor = cursor
+            copyCursor = anchor
+            placeCopyModeCursor(surface: surface)
+            setVisualSelection(surface: surface)
         case .copyAndExit:
+            if keyboardCopyModeVisualActive {
+                // Ensure the full selection range is set before copying.
+                setVisualSelection(surface: surface)
+            }
             _ = performBindingAction("copy_to_clipboard")
             _ = ghostty_surface_clear_selection_compat(surface)
             setKeyboardCopyModeActive(false)
@@ -7449,6 +7518,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case let .moveCursor(direction):
             for _ in 0..<count {
                 moveCopyModeCursor(surface: surface, direction: direction)
+            }
+            if keyboardCopyModeVisualActive {
+                setVisualSelection(surface: surface)
             }
         case let .scrollLines(delta):
             _ = performBindingAction("scroll_page_lines:\(delta * count)")
