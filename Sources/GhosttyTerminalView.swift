@@ -7489,6 +7489,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
             // Also set copyCursor to end of line so motions extend from there.
             copyCursor = lineEnd
+            copyPreferredCol = lineEnd.screenCol
         case .swapSelectionAnchor:
             guard keyboardCopyModeVisualActive,
                   let anchor = copyVisualAnchor,
