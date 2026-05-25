@@ -2212,6 +2212,9 @@ struct CMUXCLI {
         ?? defaultBrowserSettingsDomain
     }
 
+    private static let notificationBodyMaxBytes = 16 * 1024
+    private static let notificationBodyReadChunkSize = 4 * 1024
+
     // Presentation flags are global, but command option values can also look like flags.
     private static let commandOptionsWithValues: Set<String> = [
         "--action", "--after-workspace", "--agent", "--amount", "--arch",
@@ -11061,29 +11064,40 @@ struct CMUXCLI {
         let trimmed = argument.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed == "-" { return notificationBodyFromFileHandle(FileHandle.standardInput) }
         let expandedPath = (trimmed as NSString).expandingTildeInPath
-        let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: expandedPath))
+        let url = URL(fileURLWithPath: expandedPath)
+        let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
+
+        let attributes = try? FileManager.default.attributesOfItem(atPath: expandedPath)
+        let fileSize = (attributes?[.size] as? NSNumber)?.uint64Value
+        if let fileSize, fileSize > UInt64(Self.notificationBodyMaxBytes) {
+            try? handle.seek(toOffset: fileSize - UInt64(Self.notificationBodyMaxBytes))
+            let data = (try? handle.read(upToCount: Self.notificationBodyMaxBytes)) ?? Data()
+            return notificationBody(from: data, isTruncated: true)
+        }
         return notificationBodyFromFileHandle(handle)
     }
 
     private func notificationBodyFromFileHandle(_ handle: FileHandle) -> String? {
-        let maxBytes = 16 * 1024
-        let chunkSize = 4 * 1024
         var bodyBytes = Data()
         var isTruncated = false
 
         while true {
-            guard let chunk = try? handle.read(upToCount: chunkSize),
+            guard let chunk = try? handle.read(upToCount: Self.notificationBodyReadChunkSize),
                   !chunk.isEmpty else {
                 break
             }
             bodyBytes.append(chunk)
-            if bodyBytes.count > maxBytes {
+            if bodyBytes.count > Self.notificationBodyMaxBytes {
                 isTruncated = true
-                bodyBytes = Data(bodyBytes.suffix(maxBytes))
+                bodyBytes = Data(bodyBytes.suffix(Self.notificationBodyMaxBytes))
             }
         }
 
+        return notificationBody(from: bodyBytes, isTruncated: isTruncated)
+    }
+
+    private func notificationBody(from bodyBytes: Data, isTruncated: Bool) -> String? {
         guard !bodyBytes.isEmpty else { return nil }
         var text = String(decoding: bodyBytes, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
