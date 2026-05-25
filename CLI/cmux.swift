@@ -3660,11 +3660,13 @@ struct CMUXCLI {
         case "notify":
             let title = optionValue(commandArgs, name: "--title") ?? "Notification"
             let subtitle = optionValue(commandArgs, name: "--subtitle") ?? ""
+            let explicitBody = optionValue(commandArgs, name: "--body") ?? optionValue(commandArgs, name: "--message")
             let positionalBody = positionalArgumentsExcludingOptions(
                 commandArgs,
                 optionsWithValues: ["--title", "--subtitle", "--body", "--message", "--workspace", "--surface"]
             ).joined(separator: " ")
-            let body = optionValue(commandArgs, name: "--body") ?? optionValue(commandArgs, name: "--message") ?? positionalBody
+            let stdinBody = explicitBody == nil && positionalBody.isEmpty ? notificationBodyFromStandardInputIfAvailable() : nil
+            let body = explicitBody ?? (positionalBody.isEmpty ? (stdinBody ?? "") : positionalBody)
             let explicitWorkspaceArg = optionValue(commandArgs, name: "--workspace")
             let env = ProcessInfo.processInfo.environment
             let preferTTYFallback = windowId == nil && env["TMUX"]?.isEmpty == false
@@ -10552,6 +10554,7 @@ struct CMUXCLI {
             Example:
               cmux notify --title "Build done" --body "All tests passed"
               cmux notify --title "Build done" "All tests passed"
+              make 2>&1 | cmux notify --title "Build finished"
               cmux notify --title "Error" --subtitle "test.swift" --body "Line 42: syntax error"
             """
         case "list-notifications":
@@ -11034,6 +11037,14 @@ struct CMUXCLI {
             result.append(arg)
         }
         return result
+    }
+
+    private func notificationBodyFromStandardInputIfAvailable() -> String? {
+        guard isatty(STDIN_FILENO) == 0 else { return nil }
+        let data = FileHandle.standardInput.readDataToEndOfFile()
+        guard !data.isEmpty else { return nil }
+        let text = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
     }
 
     func hasFlag(_ args: [String], name: String) -> Bool {
