@@ -256,6 +256,176 @@
         }
       }
     },
+    "cli.tmuxBridge.notification.body.activity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Output resumed after silence."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無音状態の後に出力が再開しました。"
+          }
+        }
+      }
+    },
+    "cli.tmuxBridge.notification.body.bell": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bell received from tmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux からベルを受信しました。"
+          }
+        }
+      }
+    },
+    "cli.tmuxBridge.notification.body.command": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンド: %@"
+          }
+        }
+      }
+    },
+    "cli.tmuxBridge.notification.body.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux reported %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux が %@ を報告しました。"
+          }
+        }
+      }
+    },
+    "cli.tmuxBridge.notification.body.pane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pane: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペイン: %@"
+          }
+        }
+      }
+    },
+    "cli.tmuxBridge.notification.body.silence": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No output detected after tmux's silence threshold. The assistant may be waiting for input."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux の無音しきい値を過ぎても出力がありません。アシスタントが入力を待っている可能性があります。"
+          }
+        }
+      }
+    },
+    "cli.tmuxBridge.notification.title.active": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI active"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI が動作中"
+          }
+        }
+      }
+    },
+    "cli.tmuxBridge.notification.title.alert": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI alert"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI アラート"
+          }
+        }
+      }
+    },
+    "cli.tmuxBridge.notification.title.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux alert"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux アラート"
+          }
+        }
+      }
+    },
+    "cli.tmuxBridge.notification.title.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI waiting"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI が待機中"
+          }
+        }
+      }
+    },
     "cli.claude-teams.usage": {
       "extractionState": "manual",
       "localizations": {

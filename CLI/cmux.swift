@@ -2606,8 +2606,8 @@ struct CMUXCLI {
             }
         }
         if command == "setup-hooks" || command == "uninstall-hooks" { try runSetupHooks(uninstall: command == "uninstall-hooks"); return } // Backwards compatibility for old hook setup docs/scripts.
-        if (command == "codex-hook" || command == "feed-hook"), processEnv["CMUX_SURFACE_ID"]?.isEmpty != false, processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
-           !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) { print("{}"); return } // Backwards compatibility for old installed hooks outside cmux terminals.
+        if (command == "codex-hook" || command == "feed-hook"), processEnv["CMUX_SURFACE_ID"]?.isEmpty != false, processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false, processEnv["TMUX"]?.isEmpty != false,
+           !Self.commandArgsContainExplicitCmuxTarget(commandArgs) { print("{}"); return } // Backwards compatibility for old installed hooks outside cmux/tmux terminals.
         if command == "hooks" {
             if try runHooksNoSocketCommand(commandArgs: commandArgs) {
                 return
@@ -2615,7 +2615,8 @@ struct CMUXCLI {
             if Self.hooksCommandNeedsCmuxTarget(commandArgs),
                processEnv["CMUX_SURFACE_ID"]?.isEmpty != false,
                processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
-               !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) {
+               processEnv["TMUX"]?.isEmpty != false,
+               !Self.commandArgsContainExplicitCmuxTarget(commandArgs) {
                 print("{}")
                 return
             }
@@ -2689,6 +2690,10 @@ struct CMUXCLI {
         } catch {
             cliTelemetry.breadcrumb("socket.connect.failure", data: ["path": resolvedSocketPath])
             cliTelemetry.captureError(stage: "socket_connect", error: error)
+            if Self.shouldNoopTmuxOnlySocketFailure(command: command, commandArgs: commandArgs, env: processEnv) {
+                print(Self.tmuxOnlyHookNoopOutput(command: command, commandArgs: commandArgs))
+                return
+            }
             throw error
         }
         defer { client.close() }
@@ -9473,8 +9478,9 @@ struct CMUXCLI {
                    cmux hooks <agent> install [--yes|-y] (opencode supports --project)
                    cmux hooks <agent> uninstall [--yes|-y] (opencode supports --project)
                    cmux hooks <agent> <event> [flags]
+                   cmux hooks tmux <install|uninstall>
                    cmux hooks feed --source <agent> [--event <event>]
-                   cmux hooks feed --source tmux-bridge --event <bell|activity|silence> [--pane-id <id>] [--session <name>] [--window <n>] [--pane <n>] [--command <cmd>] [--message <text>]
+                   cmux hooks feed --source tmux-bridge --event <bell|activity|silence> [--pane-id <id>] [--pane-tty <tty>] [--session <name>] [--window <n>] [--pane <n>] [--command <cmd>] [--message <text>]
 
             Manage and run cmux agent hooks without adding one top-level command per
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
@@ -10979,6 +10985,9 @@ struct CMUXCLI {
     }
 
     func optionValue(_ args: [String], name: String) -> String? {
+        if let equalsArg = args.first(where: { $0.hasPrefix("\(name)=") }) {
+            return String(equalsArg.dropFirst(name.count + 1))
+        }
         guard let index = args.firstIndex(of: name), index + 1 < args.count else { return nil }
         return args[index + 1]
     }
@@ -16622,8 +16631,9 @@ struct CMUXCLI {
         let subcommand = commandArgs.first?.lowercased() ?? "help"
         let hookArgs = Array(commandArgs.dropFirst())
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
+        let hookSurfaceFlag = optionValue(hookArgs, name: "--surface")
         let workspaceArg = hookWsFlag ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
-        let surfaceArg = optionValue(hookArgs, name: "--surface") ?? (hookWsFlag == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+        let surfaceArg = hookSurfaceFlag ?? (hookWsFlag == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore()
@@ -16647,6 +16657,11 @@ struct CMUXCLI {
                 parsedInput: parsedInput,
                 workspaceId: workspaceId ?? workspaceArg
             )
+        }
+        if shouldNoopTmuxOnlyHook(env: ProcessInfo.processInfo.environment, args: hookArgs, client: client) {
+            didSendFeedTelemetry = true
+            print("OK")
+            return
         }
         defer {
             if !didSendFeedTelemetry {
@@ -16736,7 +16751,8 @@ struct CMUXCLI {
                     value: "Running",
                     icon: "bolt.fill",
                     color: "#4C8DFF",
-                    pid: claudePid
+                    pid: claudePid,
+                    preferTTY: hookWsFlag == nil && hookSurfaceFlag == nil
                 )
             }
             print("OK")
@@ -16797,15 +16813,23 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     value: "Idle",
                     icon: "pause.circle.fill",
-                    color: "#8E8E93"
+                    color: "#8E8E93",
+                    preferTTY: mappedSession == nil && hookWsFlag == nil && hookSurfaceFlag == nil
                 )
                 if let completion {
                     let title = String(
                         localized: "cli.claude-hook.notification.title",
                         defaultValue: "Claude Code"
                     )
-                    let payload = notificationPayload(title: title, subtitle: completion.subtitle, body: completion.body)
-                    _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+                    _ = try? sendNotificationForCaller(
+                        client: client,
+                        title: title,
+                        subtitle: completion.subtitle,
+                        body: completion.body,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        preferTTY: mappedSession == nil && hookWsFlag == nil && hookSurfaceFlag == nil
+                    )
                 }
                 print("OK")
             } catch {
@@ -16869,7 +16893,8 @@ struct CMUXCLI {
                 surfaceId: surfaceId,
                 value: "Running",
                 icon: "bolt.fill",
-                color: "#4C8DFF"
+                color: "#4C8DFF",
+                preferTTY: mappedSession == nil && hookWsFlag == nil && hookSurfaceFlag == nil
             )
             print("OK")
 
@@ -16911,7 +16936,6 @@ struct CMUXCLI {
                 localized: "cli.claude-hook.notification.title",
                 defaultValue: "Claude Code"
             )
-            let payload = notificationPayload(title: title, subtitle: summary.subtitle, body: summary.body)
 
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
@@ -16931,10 +16955,20 @@ struct CMUXCLI {
                 surfaceId: surfaceId,
                 value: "Needs input",
                 icon: "bell.fill",
-                color: "#4C8DFF"
+                color: "#4C8DFF",
+                preferTTY: mappedSession == nil && hookWsFlag == nil && hookSurfaceFlag == nil
             )
-            let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
-            print(response)
+            let response = try sendNotificationForCaller(
+                client: client,
+                title: title,
+                subtitle: summary.subtitle,
+                body: summary.body,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                preferTTY: mappedSession == nil && hookWsFlag == nil && hookSurfaceFlag == nil
+            )
+            _ = response
+            print("OK")
 
         case "session-end":
             telemetry.breadcrumb("claude-hook.session-end")
@@ -17124,13 +17158,20 @@ struct CMUXCLI {
         value: String,
         icon: String,
         color: String,
-        pid: Int? = nil
+        pid: Int? = nil,
+        preferTTY: Bool = true
     ) throws {
-        var cmd = "set_status claude_code \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
-        if let pid {
-            cmd += " --pid=\(pid)"
-        }
-        _ = try client.send(command: cmd)
+        try sendStatusForCaller(
+            client: client,
+            key: "claude_code",
+            value: value,
+            icon: icon,
+            color: color,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            preferTTY: preferTTY,
+            pid: pid
+        )
     }
 
     private func shouldApplyClaudeHookVisibleMutation(
@@ -17213,6 +17254,76 @@ struct CMUXCLI {
             return ""
         }
         return " --panel=\(surfaceId)"
+    }
+
+    @discardableResult
+    private func sendStatusForCaller(
+        client: SocketClient,
+        key: String,
+        value: String,
+        icon: String,
+        color: String,
+        priority: Int? = nil,
+        workspaceId: String? = nil,
+        surfaceId: String? = nil,
+        preferTTY: Bool = true,
+        pid: Int? = nil
+    ) throws -> [String: Any] {
+        var params: [String: Any] = [
+            "key": key,
+            "value": value,
+            "icon": icon,
+            "color": color,
+            "prefer_tty": preferTTY,
+        ]
+        params["allow_selected_fallback"] = !preferTTY
+        if let priority { params["priority"] = priority }
+        if let pid, pid > 0 { params["pid"] = pid }
+        addCallerRoutingParams(&params, workspaceId: workspaceId, surfaceId: surfaceId)
+        return try client.sendV2(method: "status.set_for_caller", params: params)
+    }
+
+    @discardableResult
+    private func sendNotificationForCaller(
+        client: SocketClient,
+        title: String,
+        subtitle: String,
+        body: String,
+        workspaceId: String? = nil,
+        surfaceId: String? = nil,
+        preferTTY: Bool = true
+    ) throws -> [String: Any] {
+        var params: [String: Any] = [
+            "title": title,
+            "subtitle": subtitle,
+            "body": body,
+            "prefer_tty": preferTTY,
+        ]
+        params["allow_selected_fallback"] = !preferTTY
+        addCallerRoutingParams(&params, workspaceId: workspaceId, surfaceId: surfaceId)
+        return try client.sendV2(method: "notification.create_for_caller", params: params)
+    }
+
+    private func addCallerRoutingParams(
+        _ params: inout [String: Any],
+        workspaceId: String?,
+        surfaceId: String?
+    ) {
+        if let workspaceId = normalizedHandleValue(workspaceId), isUUID(workspaceId) {
+            params["preferred_workspace_id"] = workspaceId
+        }
+        if let surfaceId = normalizedHandleValue(surfaceId), isUUID(surfaceId) {
+            params["preferred_surface_id"] = surfaceId
+        }
+        if let callerTTY = resolveCallerTTYNameForRouting() { params["caller_tty"] = callerTTY }
+        if ProcessInfo.processInfo.environment["TMUX"]?.isEmpty == false {
+            if let paneTTY = Self.tmuxCurrentPaneTTY() { params["tmux_pane_tty"] = paneTTY }
+            if let paneId = Self.normalizedTmuxHookValue(Self.runTmuxForHook(arguments: ["display-message", "-p", "#{pane_id}"])) { params["tmux_pane_id"] = paneId }
+            if let session = Self.normalizedTmuxHookValue(Self.runTmuxForHook(arguments: ["display-message", "-p", "#{session_name}"])) { params["tmux_session"] = session }
+            if let window = Self.normalizedTmuxHookValue(Self.runTmuxForHook(arguments: ["display-message", "-p", "#{window_index}"])) { params["tmux_window"] = window }
+            if let pane = Self.normalizedTmuxHookValue(Self.runTmuxForHook(arguments: ["display-message", "-p", "#{pane_index}"])) { params["tmux_pane"] = pane }
+            if let command = Self.normalizedTmuxHookValue(Self.runTmuxForHook(arguments: ["display-message", "-p", "#{pane_current_command}"])) { params["tmux_command"] = command }
+        }
     }
 
     private func resolvePreferredWorkspaceIdForClaudeHook(
@@ -17420,6 +17531,18 @@ struct CMUXCLI {
         let surfaceId: String
     }
 
+    private func hookHasCmuxScope(env: [String: String], args: [String]) -> Bool {
+        if normalizedHandleValue(env["CMUX_WORKSPACE_ID"]) != nil || normalizedHandleValue(env["CMUX_SURFACE_ID"]) != nil {
+            return true
+        }
+        return Self.commandArgsContainExplicitCmuxTarget(args)
+    }
+
+    private func shouldNoopTmuxOnlyHook(env: [String: String], args: [String], client: SocketClient) -> Bool {
+        guard !hookHasCmuxScope(env: env, args: args), env["TMUX"]?.isEmpty == false else { return false }
+        return resolveCallerTerminalBindingByTTY(client: client) == nil
+    }
+
     private func resolveCallerWorkspaceIdByTTY(client: SocketClient) -> String? {
         resolveCallerTerminalBindingByTTY(client: client)?.workspaceId
     }
@@ -17432,10 +17555,22 @@ struct CMUXCLI {
         return binding.surfaceId
     }
 
+    private func resolveCallerTTYNameForRouting() -> String? {
+        if ProcessInfo.processInfo.environment["TMUX"]?.isEmpty == false,
+           let clientTTY = Self.tmuxCurrentClientTTY() {
+            return clientTTY
+        }
+        return resolveCallerTTYName()
+    }
+
     private func resolveCallerTerminalBindingByTTY(client: SocketClient) -> CallerTerminalBinding? {
-        guard let ttyName = resolveCallerTTYName() else {
+        guard let ttyName = resolveCallerTTYNameForRouting() else {
             return nil
         }
+        return resolveCallerTerminalBinding(ttyName: ttyName, client: client)
+    }
+
+    private func resolveCallerTerminalBinding(ttyName: String, client: SocketClient) -> CallerTerminalBinding? {
         guard let payload = try? client.sendV2(method: "debug.terminals") else {
             return nil
         }
@@ -17453,7 +17588,16 @@ struct CMUXCLI {
 
     private func resolveCallerTTYName() -> String? {
         let env = ProcessInfo.processInfo.environment
-        for key in ["CMUX_CLI_TTY_NAME", "CMUX_TTY_NAME", "TTY", "SSH_TTY"] {
+        for key in ["CMUX_CLI_TTY_NAME", "CMUX_TTY_NAME"] {
+            if let ttyName = normalizedTTYName(env[key]) {
+                return ttyName
+            }
+        }
+        if env["TMUX"]?.isEmpty == false,
+           let tmuxClientTTY = normalizedTTYName(Self.tmuxCurrentClientTTY()) {
+            return tmuxClientTTY
+        }
+        for key in ["TTY", "SSH_TTY"] {
             if let ttyName = normalizedTTYName(env[key]) {
                 return ttyName
             }
@@ -18767,14 +18911,26 @@ struct CMUXCLI {
             localized: "agent.codex.input.body.needsInput",
             defaultValue: "Codex is asking a question"
         )
-        if let surfaceId, !surfaceId.isEmpty {
-            let payload = "Codex|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
-            _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
-        }
+        _ = try? sendNotificationForCaller(
+            client: client,
+            title: "Codex",
+            subtitle: subtitle,
+            body: body,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            preferTTY: false
+        )
         let statusValue = String(localized: "agent.codex.input.status.needsInput", defaultValue: "Codex needs input")
-        _ = try? sendV1Command(
-            "set_status codex \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-            client: client
+        _ = try? sendStatusForCaller(
+            client: client,
+            key: "codex",
+            value: statusValue,
+            icon: "bell.fill",
+            color: "#4C8DFF",
+            priority: 100,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            preferTTY: false
         )
     }
 
@@ -18785,13 +18941,25 @@ struct CMUXCLI {
         client: SocketClient
     ) {
         let summary = summarizeCodexHookFailureCandidate(failure)
-        if let surfaceId, !surfaceId.isEmpty {
-            let payload = "Codex|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))"
-            _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
-        }
-        _ = try? sendV1Command(
-            "set_status codex \(summary.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-            client: client
+        _ = try? sendNotificationForCaller(
+            client: client,
+            title: "Codex",
+            subtitle: summary.subtitle,
+            body: summary.body,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            preferTTY: false
+        )
+        _ = try? sendStatusForCaller(
+            client: client,
+            key: "codex",
+            value: summary.statusValue,
+            icon: "exclamationmark.triangle.fill",
+            color: "#FF453A",
+            priority: 100,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            preferTTY: false
         )
     }
 
@@ -20993,8 +21161,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         // Workspace/surface resolution: prefer --workspace/--surface flags, then session store, then env
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
+        let hookSurfaceFlag = optionValue(hookArgs, name: "--surface")
         let workspaceArg = hookWsFlag ?? env["CMUX_WORKSPACE_ID"]
-        let surfaceArg = optionValue(hookArgs, name: "--surface") ?? (hookWsFlag == nil ? env["CMUX_SURFACE_ID"] : nil)
+        let surfaceArg = hookSurfaceFlag ?? (hookWsFlag == nil ? env["CMUX_SURFACE_ID"] : nil)
 
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let input = parseClaudeHookInput(rawInput: rawInput)
@@ -21022,6 +21191,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 parsedInput: input,
                 workspaceId: workspaceId ?? workspaceArg
             )
+        }
+        if shouldNoopTmuxOnlyHook(env: env, args: hookArgs, client: client) {
+            didSendFeedTelemetry = true
+            print("{}")
+            return
         }
         defer {
             if !didSendFeedTelemetry {
@@ -21093,9 +21267,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 )
             }
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
-            _ = try sendV1Command(
-                "set_status \(def.statusKey) Running --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                client: client
+            _ = try sendStatusForCaller(
+                client: client,
+                key: def.statusKey,
+                value: "Running",
+                icon: "bolt.fill",
+                color: "#4C8DFF",
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                preferTTY: mapped == nil && hookWsFlag == nil && hookSurfaceFlag == nil,
+                pid: pid
             )
             if def.name == "codex", !sessionId.isEmpty {
                 let leasePath = createCodexMonitorLease(
@@ -21200,18 +21381,40 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     )
                 }
 
-                let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
-                _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+                _ = try? sendNotificationForCaller(
+                    client: client,
+                    title: def.displayName,
+                    subtitle: subtitle,
+                    body: body,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    preferTTY: mapped == nil && hookWsFlag == nil && hookSurfaceFlag == nil
+                )
                 if let codexFailure {
-                    _ = try? sendV1Command(
-                        "set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                        client: client
+                    _ = try? sendStatusForCaller(
+                        client: client,
+                        key: def.statusKey,
+                        value: codexFailure.statusValue,
+                        icon: "exclamationmark.triangle.fill",
+                        color: "#FF453A",
+                        priority: 100,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        preferTTY: mapped == nil && hookWsFlag == nil && hookSurfaceFlag == nil,
+                        pid: pid
                     )
                 } else {
                     let idleStatus = String(localized: "agent.codex.status.idle", defaultValue: "Idle")
-                    _ = try? sendV1Command(
-                        "set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                        client: client
+                    _ = try? sendStatusForCaller(
+                        client: client,
+                        key: def.statusKey,
+                        value: idleStatus,
+                        icon: "pause.circle.fill",
+                        color: "#8E8E93",
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        preferTTY: mapped == nil && hookWsFlag == nil && hookSurfaceFlag == nil,
+                        pid: pid
                     )
                 }
             } catch {
@@ -23106,9 +23309,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return
         }
 
-        // Outside a cmux terminal (no CMUX_SURFACE_ID) → silently no-op.
-        // Also matches the graceful-fallback pattern of the other hooks.
-        guard ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]?.isEmpty == false else {
+        let env = ProcessInfo.processInfo.environment
+        // Outside cmux or tmux, silently no-op. tmux panes often do not inherit
+        // CMUX_SURFACE_ID, so allow TMUX and let the caller-tty resolver route it.
+        guard env["CMUX_SURFACE_ID"]?.isEmpty == false
+            || env["CMUX_WORKSPACE_ID"]?.isEmpty == false
+            || env["TMUX"]?.isEmpty == false else {
             print("{}")
             return
         }
@@ -23131,6 +23337,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             ?? ""
         let toolName = (stdinObj["tool_name"] as? String) ?? ""
         let sessionId = (stdinObj["session_id"] as? String) ?? UUID().uuidString
+        if shouldNoopTmuxOnlyHook(env: env, args: commandArgs, client: client),
+           feedWorkspaceId(rawObject: stdinObj, fallback: nil) == nil {
+            print("{}")
+            return
+        }
 
         // Decide whether this event is Feed-actionable. Non-actionable
         // events are forwarded as telemetry (non-blocking) and exit `{}`
@@ -23146,7 +23357,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // killed/crashed. Claude's wrapper exports CMUX_CLAUDE_PID.
         // Other agents fall back to getppid() which walks up one
         // level — close enough to catch most kill scenarios.
-        let env = ProcessInfo.processInfo.environment
         let agentPid: Int = {
             let envKey: String
             switch source {
@@ -23173,7 +23383,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             "_source": source,
             "_ppid": agentPid,
         ]
-        if let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]) {
+        if let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"])
+            ?? resolveCallerWorkspaceIdByTTY(client: client) {
             eventDict["workspace_id"] = workspaceId
         }
         if let cwd = stdinObj["cwd"] as? String { eventDict["cwd"] = cwd }
@@ -23268,13 +23479,22 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let rawEvent = optionValue(commandArgs, name: "--event") ?? "bell"
         let event = rawEvent.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let paneId = optionValue(commandArgs, name: "--pane-id")
+        let paneTTY = optionValue(commandArgs, name: "--pane-tty")
+            ?? paneId.flatMap { Self.tmuxPaneTTY(paneId: $0) }
+            ?? Self.tmuxCurrentPaneTTY()
         let sessionName = optionValue(commandArgs, name: "--session")
         let windowIndex = optionValue(commandArgs, name: "--window")
         let paneIndex = optionValue(commandArgs, name: "--pane")
         let command = optionValue(commandArgs, name: "--command")
         let explicitMessage = optionValue(commandArgs, name: "--message")
-        let callerTTY = paneId.flatMap { Self.tmuxPaneTTY(paneId: $0) } ?? resolveCallerTTYName()
+        let explicitWorkspaceId = optionValue(commandArgs, name: "--workspace")
+        let explicitSurfaceId = optionValue(commandArgs, name: "--surface")
+        let callerTTY = Self.tmuxCurrentClientTTY() ?? resolveCallerTTYName()
         let env = ProcessInfo.processInfo.environment
+        if shouldNoopTmuxOnlyHook(env: env, args: commandArgs, client: client) {
+            print("{}")
+            return
+        }
 
         let sessionContext: String = {
             let session = sessionName?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -23294,17 +23514,23 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let defaultMessage: String
         switch event {
         case "silence", "alert-silence":
-            title = "AI waiting"
-            defaultMessage = "No output detected after tmux's silence threshold. The assistant may be waiting for input."
+            title = String(localized: "cli.tmuxBridge.notification.title.waiting", defaultValue: "AI waiting")
+            defaultMessage = String(
+                localized: "cli.tmuxBridge.notification.body.silence",
+                defaultValue: "No output detected after tmux's silence threshold. The assistant may be waiting for input."
+            )
         case "activity", "alert-activity":
-            title = "AI active"
-            defaultMessage = "Output resumed after silence."
+            title = String(localized: "cli.tmuxBridge.notification.title.active", defaultValue: "AI active")
+            defaultMessage = String(localized: "cli.tmuxBridge.notification.body.activity", defaultValue: "Output resumed after silence.")
         case "bell", "alert-bell":
-            title = "AI alert"
-            defaultMessage = "Bell received from tmux."
+            title = String(localized: "cli.tmuxBridge.notification.title.alert", defaultValue: "AI alert")
+            defaultMessage = String(localized: "cli.tmuxBridge.notification.body.bell", defaultValue: "Bell received from tmux.")
         default:
-            title = "tmux alert"
-            defaultMessage = "tmux reported \(rawEvent)."
+            title = String(localized: "cli.tmuxBridge.notification.title.generic", defaultValue: "tmux alert")
+            defaultMessage = String.localizedStringWithFormat(
+                String(localized: "cli.tmuxBridge.notification.body.generic", defaultValue: "tmux reported %@."),
+                rawEvent
+            )
         }
 
         var bodyParts: [String] = []
@@ -23314,10 +23540,20 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             bodyParts.append(defaultMessage)
         }
         if let command, !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            bodyParts.append("Command: \(command)")
+            bodyParts.append(
+                String.localizedStringWithFormat(
+                    String(localized: "cli.tmuxBridge.notification.body.command", defaultValue: "Command: %@"),
+                    command
+                )
+            )
         }
         if let paneId, !paneId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            bodyParts.append("Pane: \(paneId)")
+            bodyParts.append(
+                String.localizedStringWithFormat(
+                    String(localized: "cli.tmuxBridge.notification.body.pane", defaultValue: "Pane: %@"),
+                    paneId
+                )
+            )
         }
 
         var params: [String: Any] = [
@@ -23325,12 +23561,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             "subtitle": sessionContext,
             "body": bodyParts.joined(separator: "\n"),
             "prefer_tty": true,
+            "allow_selected_fallback": false,
         ]
         if let callerTTY { params["caller_tty"] = callerTTY }
-        if let workspaceId = env["CMUX_WORKSPACE_ID"], isUUID(workspaceId) {
+        if let paneId { params["tmux_pane_id"] = paneId }
+        if let paneTTY { params["tmux_pane_tty"] = paneTTY }
+        if let sessionName { params["tmux_session"] = sessionName }
+        if let windowIndex { params["tmux_window"] = windowIndex }
+        if let paneIndex { params["tmux_pane"] = paneIndex }
+        if let command { params["tmux_command"] = command }
+        if let workspaceId = normalizedHandleValue(explicitWorkspaceId ?? env["CMUX_WORKSPACE_ID"]), isUUID(workspaceId) {
             params["preferred_workspace_id"] = workspaceId
         }
-        if let surfaceId = env["CMUX_SURFACE_ID"], isUUID(surfaceId) {
+        if let surfaceId = normalizedHandleValue(explicitSurfaceId ?? env["CMUX_SURFACE_ID"]), isUUID(surfaceId) {
             params["preferred_surface_id"] = surfaceId
         }
 
@@ -23341,8 +23584,26 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     private static func tmuxPaneTTY(paneId: String) -> String? {
         let trimmedPaneId = paneId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPaneId.isEmpty else { return nil }
-        return runTmuxForHook(arguments: ["display-message", "-t", trimmedPaneId, "-p", "#{pane_tty}"])?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalizedTmuxHookValue(
+            runTmuxForHook(arguments: ["display-message", "-t", trimmedPaneId, "-p", "#{pane_tty}"])
+        )
+    }
+
+    private static func tmuxCurrentPaneTTY() -> String? {
+        normalizedTmuxHookValue(runTmuxForHook(arguments: ["display-message", "-p", "#{pane_tty}"]))
+    }
+
+    private static func tmuxCurrentClientTTY() -> String? {
+        normalizedTmuxHookValue(runTmuxForHook(arguments: ["display-message", "-p", "#{client_tty}"]))
+    }
+
+    private static func normalizedTmuxHookValue(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty,
+              trimmed != "not a tty" else {
+            return nil
+        }
+        return trimmed
     }
 
     private static func runTmuxForHook(arguments: [String]) -> String? {
@@ -23839,6 +24100,20 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             )
             return true
 
+        case "tmux":
+            let rest = Array(commandArgs.dropFirst())
+            let action = rest.first?.lowercased() ?? "help"
+            switch action {
+            case "install":
+                try runTmuxBridgeHooksInstall(uninstall: false)
+                return true
+            case "uninstall", "remove":
+                try runTmuxBridgeHooksInstall(uninstall: true)
+                return true
+            default:
+                throw CLIError(message: "Usage: cmux hooks tmux <install|uninstall>")
+            }
+
         default:
             guard let def = Self.agentDef(named: first) else {
                 if first == "feed" || first == "claude" {
@@ -23871,9 +24146,113 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     private static func hooksCommandNeedsCmuxTarget(_ commandArgs: [String]) -> Bool {
         guard let first = commandArgs.first?.lowercased() else { return false }
         if first == "feed" || first == "claude" { return true }
+        if first == "tmux" { return false }
         guard Self.agentDef(named: first) != nil else { return false }
         let action = commandArgs.dropFirst().first?.lowercased()
         return action != "install" && action != "uninstall"
+    }
+
+    private static func commandArgsContainExplicitCmuxTarget(_ commandArgs: [String]) -> Bool {
+        commandArgs.contains { arg in
+            arg == "--workspace" || arg == "--surface" || arg.hasPrefix("--workspace=") || arg.hasPrefix("--surface=")
+        }
+    }
+
+    private static func shouldNoopTmuxOnlySocketFailure(command: String, commandArgs: [String], env: [String: String]) -> Bool {
+        guard env["TMUX"]?.isEmpty == false,
+              env["CMUX_SURFACE_ID"]?.isEmpty != false,
+              env["CMUX_WORKSPACE_ID"]?.isEmpty != false,
+              !commandArgsContainExplicitCmuxTarget(commandArgs) else {
+            return false
+        }
+        if command == "codex-hook" || command == "feed-hook" { return true }
+        if command == "hooks" { return hooksCommandNeedsCmuxTarget(commandArgs) }
+        return false
+    }
+
+    private static func tmuxOnlyHookNoopOutput(command: String, commandArgs: [String]) -> String {
+        if command == "hooks", commandArgs.first?.lowercased() == "claude" { return "OK" }
+        return "{}"
+    }
+
+    private func runTmuxBridgeHooksInstall(uninstall: Bool) throws {
+        guard ProcessInfo.processInfo.environment["CMUX_SOCKET_PATH"]?.isEmpty == false else {
+            print("warning: CMUX_SOCKET_PATH is not set — tmux bridge hooks will not be able to reach the cmux socket. Run this command from inside cmux.")
+            return
+        }
+        if !uninstall {
+            print("Configuring tmux session options for alert detection…")
+            try runTmuxCommand(arguments: ["set-option", "-g", "monitor-bell", "on"])
+            try runTmuxCommand(arguments: ["set-option", "-g", "bell-action", "any"])
+            try runTmuxCommand(arguments: ["set-option", "-g", "monitor-activity", "on"])
+            try runTmuxCommand(arguments: ["set-option", "-g", "monitor-silence", "15"])
+            print("  monitor-bell on")
+            print("  bell-action any")
+            print("  monitor-activity on")
+            print("  monitor-silence 15")
+        }
+        let hooks: [(hook: String, event: String)] = [
+            ("alert-bell", "bell"),
+            ("alert-activity", "activity"),
+            ("alert-silence", "silence"),
+        ]
+        var removedCount = 0
+        for item in hooks {
+            removedCount += try removeCmuxTmuxBridgeHook(item.hook)
+            if !uninstall {
+                try runTmuxCommand(arguments: [
+                    "set-hook",
+                    "-g",
+                    "-a",
+                    item.hook,
+                    tmuxBridgeHookCommand(event: item.event),
+                ])
+            }
+        }
+        if uninstall && removedCount == 0 {
+            print("No managed cmux tmux alert hooks found")
+        } else {
+            print(uninstall ? "Removed cmux tmux alert hooks" : "Installed cmux tmux alert hooks")
+        }
+    }
+
+    private func tmuxBridgeHookCommand(event: String) -> String {
+        let bridge = "cmux hooks feed --source tmux-bridge --event \(event) --pane-id #{q:pane_id} --pane-tty #{q:pane_tty} --session #{q:session_name} --window #{q:window_index} --pane #{q:pane_index} --command #{q:pane_current_command} # cmux-tmux-bridge"
+        return "run-shell -b \(shellQuote(bridge))"
+    }
+
+    private func removeCmuxTmuxBridgeHook(_ hook: String) throws -> Int {
+        let output = try runTmuxCommand(arguments: ["show-hooks", "-g", hook])
+        let marker = "cmux-tmux-bridge"
+        var removedCount = 0
+        for line in output.split(separator: "\n") where line.contains(marker) {
+            guard let open = line.firstIndex(of: "["),
+                  let close = line[open...].firstIndex(of: "]") else {
+                continue
+            }
+            let index = line[line.index(after: open)..<close]
+            guard !index.isEmpty else { continue }
+            try runTmuxCommand(arguments: ["set-hook", "-g", "-u", "\(hook)[\(index)]"])
+            removedCount += 1
+        }
+        return removedCount
+    }
+
+    @discardableResult
+    private func runTmuxCommand(arguments: [String]) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["tmux"] + arguments
+        let output = Pipe()
+        let errorPipe = Pipe()
+        process.standardOutput = output
+        process.standardError = errorPipe
+        try process.run()
+        process.waitUntilExit()
+        let stdout = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        if process.terminationStatus == 0 { return stdout }
+        let stderr = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        throw CLIError(message: stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "tmux command failed" : stderr.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     private func installHooksForAgent(_ def: AgentHookDef, arguments: [String]) throws {
@@ -24051,6 +24430,33 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         print("Done: \(count) \(isUninstall ? "uninstalled" : "installed"), \(skipped) skipped")
         if !skippedNoBinary.isEmpty {
             print("  skipped \(skippedNoBinary.count) agents (not found on PATH): \(skippedNoBinary.joined(separator: ", "))")
+        }
+
+        // Tmux alert bridge — auto-detect and offer to install
+        if !isUninstall && agentFilterDef == nil {
+            let hasTmux = Self.isBinaryOnPath("tmux")
+            if hasTmux {
+                let wantsTmux: Bool
+                if args.contains("--yes") || args.contains("-y") {
+                    wantsTmux = true
+                } else {
+                    print("")
+                    print("tmux detected on PATH. Install cmux tmux alert bridge?")
+                    print("  This forwards tmux alerts (bell, activity, silence) to cmux notifications.")
+                    print("  Type 'y' to install, anything else to skip: ", terminator: "")
+                    if let answer = readLine()?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                       answer == "y" || answer == "yes" {
+                        wantsTmux = true
+                    } else {
+                        print("skipped")
+                        wantsTmux = false
+                    }
+                }
+                if wantsTmux {
+                    print("")
+                    try runTmuxBridgeHooksInstall(uninstall: false)
+                }
+            }
         }
     }
 
@@ -24474,6 +24880,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           omc [omc-args...]
           hooks setup|uninstall [--agent <name>]
           hooks <agent> <install|uninstall|event> [options; opencode supports --project]
+          hooks tmux <install|uninstall>
           hooks feed --source <agent> [--event <event>]
           ping
           version

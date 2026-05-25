@@ -211,6 +211,86 @@ export const CmuxNotificationPlugin = async ({ $, }) => {
 };
 ```
 
+> **Tip:** Set `hooksMode: "replace"` in a project `notifications` section to ignore inherited hooks.
+
+## Tmux Alert Bridge
+
+When you run tmux inside cmux, the **tmux alert bridge** forwards tmux activity alerts to cmux notifications. This is useful for AI agent workflows where you want to know when an agent finishes, needs input, or emits a bell.
+
+### How It Works
+
+Three tmux alert hooks are installed globally:
+
+| Hook | Event | Trigger |
+|------|-------|---------|
+| `alert-bell` | **AI alert** | Bell character (`\a`) from any pane |
+| `alert-activity` | **AI active** | Output detected after tmux silence period |
+| `alert-silence` | **AI waiting** | No output for the monitor-silence interval |
+
+Each hook calls `cmux hooks feed --source tmux-bridge` with pane+socket metadata. The cmux socket routes each notification to the correct workspace.
+
+### Prerequisites
+
+- The cmux CLI must be reachable as `cmux` from inside tmux.
+- You must run the install from a shell **inside cmux** (so `CMUX_SOCKET_PATH` is set).
+
+### Install
+
+```bash
+# Install tmux bridge hooks
+cmux hooks tmux install
+
+# Or install everything at once (agents + tmux bridge)
+cmux hooks setup
+```
+
+During `cmux hooks setup`, if tmux is detected on `PATH`, you're prompted to install the bridge. Pass `--yes` for unattended setup:
+
+```bash
+cmux hooks setup --yes
+```
+
+### What Gets Configured
+
+`cmux hooks tmux install` sets these tmux session options and installs three hooks:
+
+```
+monitor-bell on
+bell-action any
+monitor-activity on
+monitor-silence 15
+
+alert-bell    → cmux hooks feed --source tmux-bridge --event bell ...
+alert-activity → cmux hooks feed --source tmux-bridge --event activity ...
+alert-silence  → cmux hooks feed --source tmux-bridge --event silence ...
+```
+
+### Test
+
+1. Install the hooks: `cmux hooks tmux install`
+2. Inside a tmux pane, send a bell: `printf '\a'`
+3. You should see an "AI alert" notification in cmux's sidebar
+
+To test activity/silence alerts, run a slow command (like `sleep 30`) and wait for the 15-second silence threshold.
+
+### Verify
+
+```bash
+# Check all installed hooks
+tmux show-hooks -g | grep cmux-tmux-bridge
+
+# Check session options
+tmux show-options -g | grep -E 'monitor-(bell|activity|silence)|bell-action'
+```
+
+### Uninstall
+
+```bash
+cmux hooks tmux uninstall
+```
+
+This removes only cmux-managed hooks (marked with `# cmux-tmux-bridge`) and leaves other hooks untouched.
+
 ## Environment Variables
 
 cmux sets these in child shells:
@@ -234,6 +314,9 @@ cmux clear-notifications
 cmux set-status <key> <value>
 cmux clear-status <key>
 cmux ping
+cmux hooks setup
+cmux hooks tmux install
+cmux hooks tmux uninstall
 ```
 
 ## Best Practices

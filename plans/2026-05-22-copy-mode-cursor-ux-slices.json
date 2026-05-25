@@ -1,0 +1,1023 @@
+{
+  "name": "Copy-Mode Cursor UX Implementation Slices",
+  "workingDirectory": "/Users/taylor/Documents/Projects/03-tools/cmux",
+  "settings": {
+    "maxCompletionLoops": 8,
+    "autoCommit": true
+  },
+  "prompts": [
+    {
+      "topic": "Slice 0: Ghostty Fork API: set_selection_range",
+      "prompt": "Implement slice-0-ghostty-fork-api: Ghostty Fork API: set_selection_range.\n\nContext:\n- Source plan: plans/2026-05-22-copy-mode-cursor-ux-slices.md (read Slice 0 before editing).\n- Machine-readable details are preserved in this JSON under slices[].\n- Dependencies: none.\n- Summary: Adds ghostty_surface_set_selection_range to the C API, the Ghostty fork API required by later slices.\n\nRequirements:\n1. Touch only the Ghostty fork API surface and required cmux compatibility declaration documented in Slice 0.\n2. Follow AGENTS.md Ghostty submodule workflow: commit and push the Ghostty change before updating the parent submodule pointer.\n3. Update docs/ghostty-fork.md with the fork change and conflict notes.\n4. Verify the tagged Debug build with ./scripts/reload.sh --tag copy-mode-cursor-ux-slice-0 when the parent repo is ready.\n\nAcceptance criteria:\n- ghostty_surface_set_selection_range is exported and callable from cmux.\n- Existing copy mode behavior is unchanged.\n- The Ghostty fork commit is pushed before the parent pointer update."
+    },
+    {
+      "topic": "Slice 1: Cursor State Model + Normal-Mode Motions",
+      "prompt": "Implement slice-1-cursor-state-normal-mode: Cursor State Model + Normal-Mode Motions.\n\nContext:\n- Source plan: plans/2026-05-22-copy-mode-cursor-ux-slices.md (read Slice 1 before editing).\n- Machine-readable details are preserved in this JSON under slices[].\n- Depends on: Slice 0.\n- Summary: Replace scroll-centric copy mode with a cursor-centric model. Entering copy mode shows a visible 1-cell cursor; j/k/h/l move the cursor; viewport scrolls only near edges.\n\nRequirements:\n1. Add the CopyModeCursor state model and preferred-column/viewport-top tracking from the plan.\n2. Use ghostty_surface_set_selection_range_compat to place the copy-mode cursor.\n3. Remap normal-mode j/k/h/l and arrow keys to cursor movement while preserving visual-mode selection behavior.\n4. Keep copy/yank and Escape behavior coherent with the new cursor state.\n5. Verify with ./scripts/reload.sh --tag copy-mode-cursor-ux-slice-1.\n\nAcceptance criteria:\n- Cmd-Shift-M shows the cursor at the expected terminal/viewport position.\n- j/k/h/l move the cursor and scroll only at edges.\n- y copies the cursor line and exits; Escape exits and clears state."
+    },
+    {
+      "topic": "Slice 2: Visual Mode Reconnection",
+      "prompt": "Implement slice-2-visual-mode-reconnection: Visual Mode Reconnection.\n\nContext:\n- Source plan: plans/2026-05-22-copy-mode-cursor-ux-slices.md (read Slice 2 before editing).\n- Machine-readable details are preserved in this JSON under slices[].\n- Depends on: Slices 0 and 1.\n- Summary: Visual mode should start from the visible copy-mode cursor rather than a hidden terminal cursor; add anchor swap with o and visual line mode with V.\n\nRequirements:\n1. Add copyVisualAnchor and selection range placement from anchor to cursor.\n2. Make v in normal mode start visual selection from copyCursor; make v in visual mode clear selection and return to normal mode.\n3. Add o to swap anchor and cursor.\n4. Add V for visual line mode with full-line selection.\n5. Ensure y sets/copies the intended selection before exiting.\n6. Verify with ./scripts/reload.sh --tag copy-mode-cursor-ux-slice-2.\n\nAcceptance criteria:\n- First visual motion extends smoothly from the visible cursor without jump/auto-scroll surprise.\n- o swaps selection endpoints.\n- V selects full lines and y copies the selected text."
+    },
+    {
+      "topic": "Slice 3: Additional Motions (w/b/e, 0/^/$)",
+      "prompt": "Implement slice-3-additional-motions: Additional Motions (w/b/e, 0/^/$).\n\nContext:\n- Source plan: plans/2026-05-22-copy-mode-cursor-ux-slices.md (read Slice 3 before editing).\n- Machine-readable details are preserved in this JSON under slices[].\n- Depends on: Slices 0, 1, and 2.\n- Summary: Add Vim-like word and line-boundary motions in copy mode.\n\nRequirements:\n1. Add cursor directions and helpers for w, b, e, 0, ^, and $.\n2. Implement line-reading/word-boundary behavior exactly as specified in the slice details.\n3. Preserve selection behavior in visual mode and numeric prefixes where the existing copy-mode action path supports them.\n4. Verify with ./scripts/reload.sh --tag copy-mode-cursor-ux-slice-3.\n\nAcceptance criteria:\n- w/b/e navigate word starts/ends; 0/^/$ navigate line boundaries.\n- Motions behave sensibly at whitespace-only lines, line edges, and viewport edges.\n- Existing copy-mode tests/behaviors continue to pass."
+    },
+    {
+      "topic": "Slice 4: Visual Block Mode",
+      "prompt": "Implement slice-4-visual-block-mode: Visual Block Mode.\n\nContext:\n- Source plan: plans/2026-05-22-copy-mode-cursor-ux-slices.md (read Slice 4 before editing).\n- Machine-readable details are preserved in this JSON under slices[].\n- Depends on: Slices 0, 1, and 2.\n- Summary: Ctrl-v enters visual block mode with rectangular selection between anchor and cursor.\n\nRequirements:\n1. Add copyVisualBlockActive state.\n2. Add Ctrl-v mapping/action to start rectangular selection from copyCursor.\n3. Make setVisualSelection pass the rectangular flag when block mode is active.\n4. Ensure clear/exit/yank paths reset block mode and copy rectangular content correctly.\n5. Verify with ./scripts/reload.sh --tag copy-mode-cursor-ux-slice-4.\n\nAcceptance criteria:\n- Ctrl-v starts visual block mode.\n- j/k/h/l grow/shrink a rectangle.\n- y copies the rectangular block and exits."
+    },
+    {
+      "topic": "Slice 5: Selection Color & Overlay Enhancement",
+      "prompt": "Implement slice-5-selection-color-enhancement: Selection Color & Overlay Enhancement.\n\nContext:\n- Source plan: plans/2026-05-22-copy-mode-cursor-ux-slices.md (read Slice 5 before editing).\n- Machine-readable details are preserved in this JSON under slices[].\n- Depends on: Slices 1 and 2.\n- Summary: Ensure copy-mode cursor and selections stay visible across themes with high-contrast selection override and optional overlay cursor fallback.\n\nRequirements:\n1. Implement the high-contrast copy-mode selection color override from the slice details.\n2. Restore user/theme selection colors on copy-mode exit.\n3. Add optional overlay cursor support only as a debug/advanced fallback; do not enable it by default.\n4. Keep behavior per-surface and avoid global theme side effects.\n5. Verify with ./scripts/reload.sh --tag copy-mode-cursor-ux-slice-5.\n\nAcceptance criteria:\n- Cursor/selection is clearly visible on dark, light, and low-contrast themes.\n- Colors are restored after copy mode exits.\n- Overlay fallback is opt-in only."
+    },
+    {
+      "topic": "Final validation and rollout readiness",
+      "prompt": "Validate the completed Copy-Mode Cursor UX chain.\n\nContext:\n- Source plan: plans/2026-05-22-copy-mode-cursor-ux-slices.md.\n- All prior slice prompts in this chain should already be implemented.\n\nTasks:\n1. Review the final implementation against the state transition diagram preserved in this JSON and the Markdown plan.\n2. Verify normal mode, visual mode, visual line mode, visual block mode, motions, copy/yank behavior, exit behavior, viewport scrolling, and visible cursor/selection behavior are coherent.\n3. Confirm Ghostty fork changes are committed and pushed according to AGENTS.md before parent submodule pointer changes.\n4. Run ./scripts/reload.sh --tag copy-mode-cursor-ux-final and report the App path as a file:// markdown link if successful.\n5. Document remaining risks or follow-up work.\n\nAcceptance criteria:\n- Every slice from the plan is accounted for.\n- The tagged debug build succeeds, or failures are attributed to exact blockers.\n- No source-text-only/fake tests are added."
+    }
+  ],
+  "stateTransitionDiagram": "                         ┌──────────────────────────┐\n                         │   Copy mode INACTIVE      │\n                         │   copyCursor = nil        │\n                         │   no selection             │\n                         └──────────┬───────────────┘\n                                    │ ⌘⇧M\n                                    ▼\n                         ┌──────────────────────────┐\n                         │   NORMAL MODE             │\n                         │   copyCursor = (r,c,vr)   │\n                         │   1-cell selection at     │\n                         │     cursor position        │\n                         │   copyViewportTopScreenRow│\n                         │     = bootstrapped from   │\n                         │     terminal cursor        │\n                         └──┬───┬───┬───┬───┬──────┘\n                            │   │   │   │   │\n              ┌─────────────┘   │   │   │   └─────────────┐\n              │                 │   │   │                 │\n         j/k/h/l           v   V   C-v  y/yy           Esc\n              │                 │   │   │                 │\n              ▼                 ▼   ▼   ▼                 ▼\n    ┌─────────────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐\n    │ Cursor moves     │  │ VISUAL   │  │ Copy     │  │ INACTIVE │\n    │ Viewport scrolls │  │ MODE     │  │ line(s)  │  │ (exit)   │\n    │ if near edge     │  │          │  │ & exit   │  │          │\n    │ Preferred col    │  │ anchor = │  └──────────┘  └──────────┘\n    │ updated on j/k   │  │  cursor  │\n    └─────────────────┘  │ range    │\n                         │ selection│\n                         └──┬───┬──┘\n                            │   │\n              ┌─────────────┘   └─────────────┐\n              │                               │\n        j/k/h/l/w/b/e                     o / v / y\n              │                               │\n              ▼                      ┌────────┴────────┐\n    ┌─────────────────┐              │                   │\n    │ Selection        │         o → swap           v → clear\n    │ extends from     │         anchor↔cursor      Selection\n    │ anchor to cursor │         (cursor moves)     → NORMAL MODE\n    │ Viewport scrolls │                            │\n    │ if near edge     │                        y → set selection\n    └─────────────────┘                            → copy → INACTIVE\n\n                    ┌──────────────────┐\n                    │ VISUAL LINE MODE │\n                    │ (V from normal)  │\n                    │ anchor at col 0  │\n                    │ cursor at EOL    │\n                    │ full-line range  │\n                    └──────────────────┘\n\n                    ┌──────────────────┐\n                    │ VISUAL BLOCK MODE│\n                    │ (Ctrl-v)         │\n                    │ anchor = cursor  │\n                    │ rect selection   │\n                    │ is_rect = true   │\n                    └──────────────────┘",
+  "slices": [
+    {
+      "id": "slice-0-ghostty-fork-api",
+      "name": "Ghostty Fork API: set_selection_range",
+      "order": 0,
+      "summary": "Adds ghostty_surface_set_selection_range to the C API — the single Ghostty fork change needed by all subsequent slices.",
+      "userVisibleChange": {
+        "before": "No change — this is a prerequisite API",
+        "after": "No change — this is a prerequisite API. Enables all subsequent slices."
+      },
+      "isPrerequisite": true,
+      "requiresForkCommit": true,
+      "dependencies": [],
+      "ghosttyFork": {
+        "commitMessage": "ghostty: add ghostty_surface_set_selection_range C API\n\nExports a C function that sets a selection range from buffer (screen)\ncoordinates.  Used by cmux keyboard copy mode to place the copy-mode\ncursor (1-cell selection) and to set visual-mode selections from an\narbitrary anchor point.",
+        "branch": "set-selection-range-api",
+        "files": [
+          {
+            "path": "ghostty/include/ghostty.h",
+            "change": "Add declaration after line ~1179 (after existing ghostty_surface_select_cursor_cell)",
+            "insertAfter": "ghostty_surface_select_cursor_cell",
+            "code": "GHOSTTY_API bool ghostty_surface_set_selection_range(\n    ghostty_surface_t,\n    uint32_t row_start, uint32_t col_start,\n    uint32_t row_end, uint32_t col_end,\n    bool is_rectangular\n);"
+          },
+          {
+            "path": "ghostty/src/apprt/embedded.zig",
+            "change": "Add export after ghostty_surface_clear_selection (~line 1670)",
+            "code": "/// Set a selection range from buffer (screen) coordinates.\n/// row/col are 0-indexed. If the range endpoint is outside the viewport,\n/// Ghostty's existing selection rendering will auto-scroll (same as\n/// adjust_selection).\nexport fn ghostty_surface_set_selection_range(\n    surface: *Surface,\n    row_start: u32, col_start: u32,\n    row_end: u32, col_end: u32,\n    is_rectangular: bool,\n) bool {\n    surface.core_surface.renderer_state.mutex.lock();\n    defer surface.core_surface.renderer_state.mutex.unlock();\n\n    const screen = &surface.core_surface.io.terminal.screens.active;\n    const start_pin = screen.pages.pin(.{ .screen = .{ .x = col_start, .y = row_start } }) orelse return false;\n    const end_pin   = screen.pages.pin(.{ .screen = .{ .x = col_end,   .y = row_end   } }) orelse return false;\n\n    surface.core_surface.setSelection(\n        terminal.Selection.init(start_pin, end_pin, is_rectangular)\n    ) catch return false;\n\n    screen.dirty.selection = true;\n    surface.core_surface.queueRender() catch return false;\n    return true;\n}"
+          },
+          {
+            "path": "docs/ghostty-fork.md",
+            "change": "Add §12: 'Copy-mode set_selection_range C API' with the commit hash and merge-conflict notes",
+            "code": "## §12: Copy-mode set_selection_range C API\n\nCommits: <fill after push>\n\nAdds `ghostty_surface_set_selection_range` to `ghostty.h` and `embedded.zig`.\nUses `terminal.Selection.init`, `screen.pages.pin(.screen)`, `setSelection`, `queueRender`.\n\nConflict notes: unlikely to conflict with upstream; selection API surface is stable."
+          }
+        ],
+        "parentRepoCommit": "git add ghostty && git commit -m 'ghostty: add set_selection_range C API for copy-mode cursor'"
+      },
+      "files": [
+        {
+          "path": "Sources/GhosttyTerminalView.swift",
+          "changes": [
+            {
+              "type": "add",
+              "location": "After existing compat functions (~line 21)",
+              "description": "Add compat function for new C API",
+              "code": "@_silgen_name(\"ghostty_surface_set_selection_range\")\nprivate func ghostty_surface_set_selection_range_compat(\n    _ surface: ghostty_surface_t,\n    _ row_start: UInt32,\n    _ col_start: UInt32,\n    _ row_end: UInt32,\n    _ col_end: UInt32,\n    _ is_rectangular: Bool\n) -> Bool"
+            }
+          ]
+        }
+      ],
+      "newTypes": [],
+      "newEnums": [],
+      "newStateVariables": [],
+      "newFunctions": [],
+      "modifiedFunctions": [],
+      "keyMappingChanges": [],
+      "stateTransitions": [],
+      "verification": {
+        "manual": [
+          "Build: ./scripts/reload.sh --tag slice0-api — the Debug app builds",
+          "Runtime smoke: Launch the tagged app. Enter copy mode (⌘⇧M). The existing copy mode still works (no behavior change). Exit copy mode.",
+          "Ghostty fork: cd ghostty && git merge-base --is-ancestor HEAD origin/main must succeed before the parent commit."
+        ],
+        "edgeCases": [],
+        "automated": "Existing CI E2E copy-mode tests still pass."
+      },
+      "removals": [],
+      "compatFunctionAdditions": [
+        {
+          "function": "ghostty_surface_set_selection_range_compat",
+          "silgenName": "ghostty_surface_set_selection_range",
+          "signature": "(_ surface: ghostty_surface_t, _ row_start: UInt32, _ col_start: UInt32, _ row_end: UInt32, _ col_end: UInt32, _ is_rectangular: Bool) -> Bool"
+        }
+      ]
+    },
+    {
+      "id": "slice-1-cursor-state-normal-mode",
+      "name": "Cursor State Model + Normal-Mode Motions",
+      "order": 1,
+      "summary": "Replaces the scroll-centric copy-mode with a cursor-centric model — visible cursor via set_selection_range, j/k/h/l move the cursor, viewport scrolls only when cursor hits the edge.",
+      "userVisibleChange": {
+        "before": "⌘⇧M → no visible cursor (or cursor at wrong position). j/k → viewport scrolls, no cursor movement. h/l → no visible effect in normal mode.",
+        "after": "⌘⇧M → visible blinking cursor at terminal cursor position. j/k → cursor moves, viewport scrolls when cursor hits edge. h/l → cursor moves left/right within current line."
+      },
+      "isPrerequisite": false,
+      "requiresForkCommit": false,
+      "dependencies": ["slice-0-ghostty-fork-api"],
+      "ghosttyFork": null,
+      "files": [
+        {
+          "path": "Sources/GhosttyTerminalView.swift",
+          "changes": [
+            {
+              "type": "add",
+              "location": "New type definition (~line 1337, near SelectionMove enum)",
+              "description": "Add CopyModeCursor struct",
+              "code": "/// Copy-mode cursor position in screen (buffer) coordinates, plus a\n/// viewport-relative row for scroll-boundary checks.\nstruct CopyModeCursor: Equatable {\n    /// Screen (buffer) row, 0-indexed from the top of scrollback.\n    var screenRow: Int\n    /// Screen (buffer) column, 0-indexed.\n    var screenCol: Int\n    /// Viewport-relative row. 0 = top of visible viewport, rows-1 = bottom.\n    /// Used for scroll-boundary checks (scroll-off margin).\n    var viewportRow: Int\n}"
+            },
+            {
+              "type": "add",
+              "location": "After CopyModeCursor struct",
+              "description": "Add TerminalKeyboardCopyModeCursorDirection enum",
+              "code": "/// Direction for cursor movement in copy mode.\nenum TerminalKeyboardCopyModeCursorDirection: Equatable {\n    case up, down, left, right\n}"
+            },
+            {
+              "type": "add",
+              "location": "In CopyModeAction enum (~line 1350)",
+              "description": "Add moveCursor action case",
+              "code": "case moveCursor(TerminalKeyboardCopyModeCursorDirection)"
+            },
+            {
+              "type": "replace",
+              "location": "State variables (~line 6500–6515)",
+              "description": "Replace keyboardCopyModeViewportRow with new cursor state variables",
+              "code": "/// Copy-mode cursor. Non-nil only when `keyboardCopyModeActive` is true.\nprivate var copyCursor: CopyModeCursor?\n\n/// Preferred column for vertical motion (preserved across j/k).\nprivate var copyPreferredCol: Int = 0\n\n/// The screen row currently at the top of the viewport.\n/// Updated on scroll events. Used to compute viewportRow from screenRow.\nprivate var copyViewportTopScreenRow: Int = 0"
+            },
+            {
+              "type": "replace",
+              "location": "Key mapping (~line 1469)",
+              "description": "Replace j/k/h/l arrow key mappings to emit .moveCursor instead of .scrollLines/nil",
+              "code": "case 126: // Up\n    return hasSelection ? .adjustSelection(.up) : .moveCursor(.up)\ncase 125: // Down\n    return hasSelection ? .adjustSelection(.down) : .moveCursor(.down)\ncase 123: // Left\n    return hasSelection ? .adjustSelection(.left) : .moveCursor(.left)\ncase 124: // Right\n    return hasSelection ? .adjustSelection(.right) : .moveCursor(.right)\n// ... similarly in the chars switch:\ncase \"j\":\n    return hasSelection ? .adjustSelection(.down) : .moveCursor(.down)\ncase \"k\":\n    return hasSelection ? .adjustSelection(.up) : .moveCursor(.up)\ncase \"h\":\n    return hasSelection ? .adjustSelection(.left) : .moveCursor(.left)\ncase \"l\":\n    return hasSelection ? .adjustSelection(.right) : .moveCursor(.right)"
+            },
+            {
+              "type": "add",
+              "location": "In handleKeyboardCopyModeIfNeeded switch block",
+              "description": "Add .moveCursor dispatch",
+              "code": "case let .moveCursor(direction):\n    for _ in 0..<count {\n        moveCopyModeCursor(surface: surface, direction: direction)\n    }"
+            },
+            {
+              "type": "add",
+              "location": "New function after copy-mode helpers",
+              "description": "Add moveCopyModeCursor core implementation",
+              "code": "private func moveCopyModeCursor(\n    surface: ghostty_surface_t,\n    direction: TerminalKeyboardCopyModeCursorDirection\n) {\n    guard var cursor = copyCursor else { return }\n    let size = ghostty_surface_size(surface)\n    let viewportRows = max(Int(size.rows), 1)\n    let viewportCols = max(Int(size.columns), 1)\n    \n    switch direction {\n    case .up:\n        cursor.screenRow = max(0, cursor.screenRow - 1)\n        cursor.viewportRow -= 1\n    case .down:\n        cursor.screenRow += 1  // no upper bound — scrollback can be large\n        cursor.viewportRow += 1\n    case .left:\n        cursor.screenCol = max(0, cursor.screenCol - 1)\n    case .right:\n        cursor.screenCol = min(viewportCols - 1, cursor.screenCol + 1)\n    }\n    \n    // Update preferred column for vertical-only motions.\n    if direction == .up || direction == .down {\n        copyPreferredCol = cursor.screenCol\n    }\n    \n    copyCursor = cursor\n    placeCopyModeCursor(surface: surface)\n    \n    // Scroll viewport if cursor left the visible area.\n    scrollViewportIfCursorOutside(\n        surface: surface,\n        cursor: cursor,\n        viewportRows: viewportRows\n    )\n}"
+            },
+            {
+              "type": "add",
+              "location": "New function",
+              "description": "Add placeCopyModeCursor (replaces refreshKeyboardCopyModeViewportRowFromVisibleAnchor)",
+              "code": "/// Place a 1-cell selection at the copy-mode cursor position.\n/// Called after every cursor move, scroll, and copy-mode entry.\nprivate func placeCopyModeCursor(surface: ghostty_surface_t) {\n    guard let cursor = copyCursor else { return }\n    let row = UInt32(cursor.screenRow)\n    let col = UInt32(cursor.screenCol)\n    _ = ghostty_surface_set_selection_range_compat(surface, row, col, row, col, false)\n}"
+            },
+            {
+              "type": "add",
+              "location": "New function",
+              "description": "Add scrollViewportIfCursorOutside for scroll-off margin behavior",
+              "code": "/// If the cursor's viewport row is outside the viewport bounds\n/// (with a scroll-off margin of 3 rows), scroll the viewport to follow.\nprivate let copyModeScrollOffMargin = 3\n\nprivate func scrollViewportIfCursorOutside(\n    surface: ghostty_surface_t,\n    cursor: CopyModeCursor,\n    viewportRows: Int\n) {\n    let margin = copyModeScrollOffMargin\n    if cursor.viewportRow < margin {\n        // Cursor above top margin — scroll up.\n        let delta = cursor.viewportRow - margin  // negative\n        _ = performBindingAction(\"scroll_page_lines:\\(delta)\")\n        copyViewportTopScreenRow += delta\n        // Recompute viewport row after scroll.\n        copyCursor?.viewportRow = margin\n    } else if cursor.viewportRow >= viewportRows - margin {\n        // Cursor below bottom margin — scroll down.\n        let delta = cursor.viewportRow - (viewportRows - margin - 1)  // positive\n        _ = performBindingAction(\"scroll_page_lines:\\(delta)\")\n        copyViewportTopScreenRow += delta\n        copyCursor?.viewportRow = viewportRows - margin - 1\n    }\n}"
+            },
+            {
+              "type": "replace",
+              "location": "setKeyboardCopyModeActive (~line 7151)",
+              "description": "Rewrite to bootstrap CopyModeCursor from terminal cursor anchor",
+              "code": "private func setKeyboardCopyModeActive(_ active: Bool) {\n    keyboardCopyModeInputState.reset()\n    keyboardCopyModeVisualActive = false\n    keyboardCopyModeActive = active\n    if active, let surface {\n        // 1. Get terminal cursor position as an anchor point.\n        guard let anchor = keyboardCopyModeSelectionAnchor(surface: surface) else {\n            // Fallback: cursor at viewport top-left.\n            copyCursor = CopyModeCursor(screenRow: 0, screenCol: 0, viewportRow: 0)\n            copyViewportTopScreenRow = 0\n            copyPreferredCol = 0\n            placeCopyModeCursor(surface: surface)\n            terminalSurface?.setKeyboardCopyModeActive(active)\n            return\n        }\n        \n        // 2. Compute which viewport row the anchor occupies.\n        let cellH = copyModeCellHeight(surface: surface)\n        let viewportRowOfAnchor = cellH > 0\n            ? Int(anchor.y / cellH)\n            : 0\n        \n        // 3. Compute viewport-top screen row.\n        copyViewportTopScreenRow = anchor.row - viewportRowOfAnchor\n        \n        // 4. Set cursor at the anchor's screen position.\n        copyCursor = CopyModeCursor(\n            screenRow: anchor.row,\n            screenCol: 0,  // Column 0 — simple, predictable start\n            viewportRow: viewportRowOfAnchor\n        )\n        copyPreferredCol = 0\n        \n        // 5. Place 1-cell selection at cursor.\n        placeCopyModeCursor(surface: surface)\n    } else {\n        copyCursor = nil\n        copyViewportTopScreenRow = 0\n        copyPreferredCol = 0\n    }\n    terminalSurface?.setKeyboardCopyModeActive(active)\n}"
+            },
+            {
+              "type": "add",
+              "location": "New helper function",
+              "description": "Add copyModeCellHeight helper for cell height computation",
+              "code": "/// Returns the height of a single terminal cell in points.\nprivate func copyModeCellHeight(surface: ghostty_surface_t) -> Double {\n    var x: Double = 0, y: Double = 0, w: Double = 0, h: Double = 0\n    ghostty_surface_ime_point(surface, &x, &y, &w, &h)\n    return h > 0 ? h : {\n        let size = ghostty_surface_size(surface)\n        let rows = max(Int(size.rows), 1)\n        return max(bounds.height / Double(rows), 1)\n    }()\n}"
+            },
+            {
+              "type": "add",
+              "location": "New helper function",
+              "description": "Add refreshCopyCursorViewportRowAfterScroll for post-scroll cursor tracking",
+              "code": "/// Update cursor viewport tracking after a scroll operation.\n/// Call after any action that moves the viewport.\nprivate func refreshCopyCursorViewportRowAfterScroll(surface: ghostty_surface_t) {\n    guard let cursor = copyCursor else { return }\n    let viewportRows = max(Int(ghostty_surface_size(surface).rows), 1)\n    let newViewportRow = cursor.screenRow - copyViewportTopScreenRow\n    var updated = cursor\n    updated.viewportRow = max(0, min(viewportRows - 1, newViewportRow))\n    copyCursor = updated\n}"
+            },
+            {
+              "type": "replace",
+              "location": "In handleKeyboardCopyModeIfNeeded, scroll action dispatch",
+              "description": "Update .scrollLines dispatch to track copyViewportTopScreenRow",
+              "code": "case let .scrollLines(delta):\n    _ = performBindingAction(\"scroll_page_lines:\\(delta * count)\")\n    copyViewportTopScreenRow += delta * count\n    refreshCopyCursorViewportRowAfterScroll(surface: surface)\n    placeCopyModeCursor(surface: surface)"
+            },
+            {
+              "type": "replace",
+              "location": "In handleKeyboardCopyModeIfNeeded, scrollToTop/scrollToBottom",
+              "description": "Update scrollToTop/scrollToBottom to track viewport state",
+              "code": "case .scrollToTop:\n    _ = performBindingAction(\"scroll_to_top\")\n    copyViewportTopScreenRow = 0\n    refreshCopyCursorViewportRowAfterScroll(surface: surface)\n    placeCopyModeCursor(surface: surface)\ncase .scrollToBottom:\n    _ = performBindingAction(\"scroll_to_bottom\")\n    let viewportRows = max(Int(ghostty_surface_size(surface).rows), 1)\n    if var cursor = copyCursor {\n        cursor.viewportRow = viewportRows - 1\n        copyCursor = cursor\n        placeCopyModeCursor(surface: surface)\n    }"
+            },
+            {
+              "type": "replace",
+              "location": "In handleKeyboardCopyModeIfNeeded, .copyLineAndExit",
+              "description": "Migrate copyLineAndExit to use copyCursor instead of keyboardCopyModeViewportRow",
+              "code": "case .copyLineAndExit:\n    let startRow = copyCursor?.viewportRow ?? 0\n    // ... rest unchanged"
+            }
+          ]
+        }
+      ],
+      "newTypes": [
+        {
+          "name": "CopyModeCursor",
+          "kind": "struct",
+          "language": "swift",
+          "fields": [
+            {"name": "screenRow", "type": "Int", "description": "Screen (buffer) row, 0-indexed from top of scrollback"},
+            {"name": "screenCol", "type": "Int", "description": "Screen (buffer) column, 0-indexed"},
+            {"name": "viewportRow", "type": "Int", "description": "Viewport-relative row. 0 = top, rows-1 = bottom"}
+          ],
+          "conformances": ["Equatable"]
+        }
+      ],
+      "newEnums": [
+        {
+          "name": "TerminalKeyboardCopyModeCursorDirection",
+          "language": "swift",
+          "cases": [
+            {"name": "up", "description": "Move cursor up one row"},
+            {"name": "down", "description": "Move cursor down one row"},
+            {"name": "left", "description": "Move cursor left one column"},
+            {"name": "right", "description": "Move cursor right one column"}
+          ]
+        }
+      ],
+      "newStateVariables": [
+        {
+          "name": "copyCursor",
+          "type": "CopyModeCursor?",
+          "replaces": "keyboardCopyModeViewportRow: Int?",
+          "description": "Copy-mode cursor position. Non-nil only when keyboardCopyModeActive."
+        },
+        {
+          "name": "copyPreferredCol",
+          "type": "Int",
+          "replaces": null,
+          "description": "Preferred column for vertical motion (preserved across j/k)."
+        },
+        {
+          "name": "copyViewportTopScreenRow",
+          "type": "Int",
+          "replaces": null,
+          "description": "The screen row currently at the top of the viewport. Updated on scroll events."
+        }
+      ],
+      "newFunctions": [
+        {
+          "name": "moveCopyModeCursor",
+          "signature": "private func moveCopyModeCursor(surface: ghostty_surface_t, direction: TerminalKeyboardCopyModeCursorDirection)",
+          "description": "Updates cursor state, places 1-cell selection, scrolls viewport if cursor outside bounds",
+          "pseudocode": "guard var cursor = copyCursor else { return }\n// Get viewportRows/viewportCols from ghostty_surface_size\n// Switch on direction: update screenRow/screenCol/viewportRow\n// Update copyPreferredCol for vertical motions\n// Call placeCopyModeCursor\n// Call scrollViewportIfCursorOutside"
+        },
+        {
+          "name": "placeCopyModeCursor",
+          "signature": "private func placeCopyModeCursor(surface: ghostty_surface_t)",
+          "description": "Place a 1-cell selection at the copy-mode cursor position. Replaces refreshKeyboardCopyModeViewportRowFromVisibleAnchor.",
+          "pseudocode": "guard let cursor = copyCursor else { return }\nlet row = UInt32(cursor.screenRow)\nlet col = UInt32(cursor.screenCol)\nghostty_surface_set_selection_range_compat(surface, row, col, row, col, false)"
+        },
+        {
+          "name": "scrollViewportIfCursorOutside",
+          "signature": "private func scrollViewportIfCursorOutside(surface: ghostty_surface_t, cursor: CopyModeCursor, viewportRows: Int)",
+          "description": "Scrolls viewport when cursor's viewportRow exceeds scroll-off margin (3 rows)",
+          "pseudocode": "if cursor.viewportRow < margin: scroll up, update copyViewportTopScreenRow, set copyCursor.viewportRow = margin\nelse if cursor.viewportRow >= viewportRows - margin: scroll down, update copyViewportTopScreenRow, set copyCursor.viewportRow = viewportRows - margin - 1"
+        },
+        {
+          "name": "copyModeCellHeight",
+          "signature": "private func copyModeCellHeight(surface: ghostty_surface_t) -> Double",
+          "description": "Returns the height of a single terminal cell in points, using IME point API or fallback calculation",
+          "pseudocode": "Try ghostty_surface_ime_point for cell height\nFallback: bounds.height / rows"
+        },
+        {
+          "name": "refreshCopyCursorViewportRowAfterScroll",
+          "signature": "private func refreshCopyCursorViewportRowAfterScroll(surface: ghostty_surface_t)",
+          "description": "Recompute cursor's viewportRow after a scroll operation",
+          "pseudocode": "guard let cursor = copyCursor else { return }\nlet newViewportRow = cursor.screenRow - copyViewportTopScreenRow\nclamp to [0, viewportRows-1]\nupdate copyCursor"
+        }
+      ],
+      "modifiedFunctions": [
+        {
+          "name": "setKeyboardCopyModeActive",
+          "currentBehavior": "Sets keyboardCopyModeViewportRow, calls select_cursor_cell at terminal cursor",
+          "newBehavior": "Bootstraps CopyModeCursor from terminal cursor anchor, computes copyViewportTopScreenRow, places 1-cell selection at cursor position",
+          "keyChanges": [
+            "Replace keyboardCopyModeViewportRow assignment with CopyModeCursor initialization",
+            "Compute viewportRow from anchor.y / cellHeight",
+            "Compute copyViewportTopScreenRow = anchor.row - viewportRowOfAnchor",
+            "Set copyCursor at anchor screen position (col 0)",
+            "Call placeCopyModeCursor instead of select_cursor_cell"
+          ]
+        },
+        {
+          "name": "handleKeyboardCopyModeIfNeeded (scroll actions)",
+          "currentBehavior": "Scroll actions don't update viewport tracking",
+          "newBehavior": "All scroll actions (.scrollLines, .scrollPage, .scrollHalfPage, .scrollToTop, .scrollToBottom, .jumpToPrompt, .searchNext, .searchPrevious) update copyViewportTopScreenRow and recompute cursor viewportRow",
+          "keyChanges": [
+            "Add copyViewportTopScreenRow tracking to all scroll dispatches",
+            "Call refreshCopyCursorViewportRowAfterScroll after scrolls",
+            "Call placeCopyModeCursor after scrolls to re-place 1-cell selection"
+          ]
+        },
+        {
+          "name": "handleKeyboardCopyModeIfNeeded (.copyLineAndExit)",
+          "currentBehavior": "Uses keyboardCopyModeViewportRow as viewport-relative row",
+          "newBehavior": "Uses copyCursor?.viewportRow instead",
+          "keyChanges": [
+            "Replace keyboardCopyModeViewportRow reference with copyCursor?.viewportRow"
+          ]
+        },
+        {
+          "name": "terminalKeyboardCopyModeAction (key mapping)",
+          "currentBehavior": "j/k mapped to .scrollLines, h/l mapped to nil or no-op in normal mode",
+          "newBehavior": "j/k/h/l mapped to .moveCursor(direction) in normal mode, .adjustSelection in visual mode",
+          "keyChanges": [
+            "Arrow keys and j/k/h/l emit .moveCursor instead of .scrollLines",
+            "hasSelection check dispatches to .adjustSelection for visual mode"
+          ]
+        }
+      ],
+      "keyMappingChanges": [
+        {"key": "j / Down arrow", "currentAction": ".scrollLines(1)", "newAction": ".moveCursor(.down)", "hasSelectionOverride": ".adjustSelection(.down)"},
+        {"key": "k / Up arrow", "currentAction": ".scrollLines(-1)", "newAction": ".moveCursor(.up)", "hasSelectionOverride": ".adjustSelection(.up)"},
+        {"key": "h / Left arrow", "currentAction": "nil (no-op)", "newAction": ".moveCursor(.left)", "hasSelectionOverride": ".adjustSelection(.left)"},
+        {"key": "l / Right arrow", "currentAction": "nil (no-op)", "newAction": ".moveCursor(.right)", "hasSelectionOverride": ".adjustSelection(.right)"},
+        {"key": "Page Up", "currentAction": ".scrollPage(-1)", "newAction": ".scrollPage(-1) (unchanged)", "hasSelectionOverride": ".adjustSelection(.pageUp)"},
+        {"key": "Page Down", "currentAction": ".scrollPage(1)", "newAction": ".scrollPage(1) (unchanged)", "hasSelectionOverride": ".adjustSelection(.pageDown)"},
+        {"key": "Home", "currentAction": ".scrollToTop", "newAction": ".scrollToTop (unchanged)", "hasSelectionOverride": ".adjustSelection(.home)"},
+        {"key": "End", "currentAction": ".scrollToBottom", "newAction": ".scrollToBottom (unchanged)", "hasSelectionOverride": ".adjustSelection(.end)"}
+      ],
+      "stateTransitions": [
+        {
+          "from": "Copy mode inactive",
+          "to": "Normal mode",
+          "trigger": "⌘⇧M",
+          "description": "copyCursor set from terminal cursor anchor, 1-cell selection placed via set_selection_range, copyViewportTopScreenRow computed"
+        },
+        {
+          "from": "Normal mode",
+          "to": "Normal mode (cursor moved)",
+          "trigger": "j/k/h/l",
+          "description": "Cursor moves, 1-cell selection re-placed, viewport scrolls if cursor hits scroll-off margin"
+        },
+        {
+          "from": "Normal mode",
+          "to": "Normal mode (viewport repositioned)",
+          "trigger": "Page/Home/End",
+          "description": "Viewport scrolls, copyViewportTopScreenRow updated, cursor viewportRow recomputed, 1-cell selection re-placed"
+        },
+        {
+          "from": "Normal mode",
+          "to": "Copy mode inactive",
+          "trigger": "y (copyLineAndExit)",
+          "description": "Copies line at cursor viewportRow, exits copy mode. (unchanged behavior)"
+        },
+        {
+          "from": "Normal mode",
+          "to": "Copy mode inactive",
+          "trigger": "Escape",
+          "description": "Clears selection, copyCursor = nil, exits copy mode"
+        }
+      ],
+      "verification": {
+        "manual": [
+          "Build: ./scripts/reload.sh --tag slice1-cursor",
+          "Open terminal, run command producing 40+ lines (e.g., ls -laR /usr/lib)",
+          "Press ⌘⇧M — visible blinking cursor appears at prompt",
+          "Press j — cursor moves DOWN one row. Viewport does NOT scroll until cursor reaches bottom 3 rows",
+          "Press k — cursor moves UP. Scrolls when near top.",
+          "Press h/l — cursor moves left/right on current line",
+          "Press Page Down — viewport scrolls down, cursor stays visible",
+          "Press y — copies current line and exits",
+          "Press Escape — exits copy mode, cursor disappears",
+          "Scroll up in terminal, enter copy mode — cursor appears at current viewport position, not off-screen shell prompt"
+        ],
+        "edgeCases": [
+          "Very narrow terminal (1 column): l/r constrained properly",
+          "Very tall terminal: j/k scroll boundaries work",
+          "Empty terminal (just a prompt): cursor moves within viewport bounds",
+          "Turbo mode: hold j — cursor races to bottom, viewport scrolls smoothly"
+        ],
+        "automated": "Existing CI E2E copy-mode tests still pass. New unit test for CopyModeCursor math and scrollViewportIfCursorOutside boundary logic (pure Swift, no app launch needed)."
+      },
+      "removals": [
+        {
+          "item": "keyboardCopyModeViewportRow: Int?",
+          "reason": "Folded into copyCursor.viewportRow"
+        },
+        {
+          "item": "refreshKeyboardCopyModeViewportRowFromVisibleAnchor",
+          "reason": "Replaced by placeCopyModeCursor"
+        }
+      ],
+      "compatFunctionAdditions": []
+    },
+    {
+      "id": "slice-2-visual-mode-reconnection",
+      "name": "Visual Mode Reconnection",
+      "order": 2,
+      "summary": "Fixes visual mode so selection starts from the current copy-mode cursor instead of the off-screen terminal cursor, and adds swap-anchor (o) and visual line mode (V).",
+      "userVisibleChange": {
+        "before": "v → selection starts from hidden terminal cursor position. First motion after v → jarring jump as viewport auto-scrolls. o → does nothing. V → does nothing (no line mode). v in visual → does nothing/confusing.",
+        "after": "v → selection starts from visible copy-mode cursor position. First motion → smooth extension from visible anchor. o → swaps selection anchor to other end. V → enters visual line mode, selects full lines. v in visual → returns to normal mode, cursor stays."
+      },
+      "isPrerequisite": false,
+      "requiresForkCommit": false,
+      "dependencies": ["slice-0-ghostty-fork-api", "slice-1-cursor-state-normal-mode"],
+      "ghosttyFork": null,
+      "files": [
+        {
+          "path": "Sources/GhosttyTerminalView.swift",
+          "changes": [
+            {
+              "type": "add",
+              "location": "New state variable (near copyCursor)",
+              "description": "Add visual mode anchor state variable",
+              "code": "/// Visual mode anchor. Set when user presses `v`.\n/// The selection spans from anchor to cursor.\nprivate var copyVisualAnchor: CopyModeCursor?"
+            },
+            {
+              "type": "add",
+              "location": "CopyModeAction enum",
+              "description": "Add new action cases for visual mode",
+              "code": "case swapSelectionAnchor\ncase startLineSelection"
+            },
+            {
+              "type": "replace",
+              "location": "In handleKeyboardCopyModeIfNeeded, .startSelection dispatch",
+              "description": "Replace startSelection handler to set anchor and place range selection from cursor",
+              "code": "case .startSelection:\n    // Enter visual mode. Anchor at current cursor position.\n    copyVisualAnchor = copyCursor\n    keyboardCopyModeVisualActive = true\n    // Set initial 1-cell selection at anchor position.\n    guard let anchor = copyVisualAnchor else { break }\n    let r = UInt32(anchor.screenRow), c = UInt32(anchor.screenCol)\n    _ = ghostty_surface_set_selection_range_compat(surface, r, c, r, c, false)"
+            },
+            {
+              "type": "add",
+              "location": "New helper function",
+              "description": "Add setVisualSelection to compute and set selection range from anchor to cursor",
+              "code": "/// Set the Ghostty selection range from anchor to current cursor.\nprivate func setVisualSelection(surface: ghostty_surface_t) {\n    guard keyboardCopyModeVisualActive,\n          let anchor = copyVisualAnchor,\n          let cursor = copyCursor else { return }\n    \n    // Determine which end is \"start\" (top-left) and which is \"end\" (bottom-right).\n    let startRow = UInt32(min(anchor.screenRow, cursor.screenRow))\n    let startCol = UInt32(min(anchor.screenCol, cursor.screenCol))\n    let endRow   = UInt32(max(anchor.screenRow, cursor.screenRow))\n    let endCol   = UInt32(max(anchor.screenCol, cursor.screenCol))\n    \n    _ = ghostty_surface_set_selection_range_compat(\n        surface, startRow, startCol, endRow, endCol, false\n    )\n}"
+            },
+            {
+              "type": "replace",
+              "location": "In handleKeyboardCopyModeIfNeeded, .moveCursor dispatch",
+              "description": "Add visual-mode selection update after cursor move",
+              "code": "case let .moveCursor(direction):\n    for _ in 0..<count {\n        moveCopyModeCursor(surface: surface, direction: direction)\n    }\n    if keyboardCopyModeVisualActive {\n        setVisualSelection(surface: surface)\n    }"
+            },
+            {
+              "type": "add",
+              "location": "In handleKeyboardCopyModeIfNeeded, .startLineSelection dispatch",
+              "description": "Add visual line mode handler",
+              "code": "case .startLineSelection:\n    guard let cursor = copyCursor else { break }\n    // Snap cursor to column 0 for full-line anchor.\n    var lineAnchor = cursor\n    lineAnchor.screenCol = 0\n    copyVisualAnchor = lineAnchor\n    keyboardCopyModeVisualActive = true\n    // Set initial selection on the full line.\n    let lineEnd = CopyModeCursor(\n        screenRow: cursor.screenRow,\n        screenCol: Int(ghostty_surface_size(surface).columns) - 1,\n        viewportRow: cursor.viewportRow\n    )\n    // Set selection from col 0 to end of line.\n    _ = ghostty_surface_set_selection_range_compat(\n        surface,\n        UInt32(lineAnchor.screenRow), 0,\n        UInt32(lineEnd.screenRow), UInt32(lineEnd.screenCol),\n        false\n    )\n    // Also set copyCursor to end of line so motions extend from there.\n    copyCursor = lineEnd"
+            },
+            {
+              "type": "add",
+              "location": "In handleKeyboardCopyModeIfNeeded, .swapSelectionAnchor dispatch",
+              "description": "Add o (swap anchor) handler",
+              "code": "case .swapSelectionAnchor:\n    guard keyboardCopyModeVisualActive,\n          let anchor = copyVisualAnchor,\n          let cursor = copyCursor else { break }\n    // Swap: old cursor becomes new anchor, old anchor becomes new cursor.\n    copyVisualAnchor = cursor\n    copyCursor = anchor\n    placeCopyModeCursor(surface: surface)\n    setVisualSelection(surface: surface)"
+            },
+            {
+              "type": "replace",
+              "location": "In handleKeyboardCopyModeIfNeeded, .clearSelection dispatch",
+              "description": "Modified clearSelection to return to normal-mode cursor placement",
+              "code": "case .clearSelection:\n    keyboardCopyModeVisualActive = false\n    copyVisualAnchor = nil\n    _ = ghostty_surface_clear_selection_compat(surface)\n    // Re-place 1-cell cursor at current copy-cursor position.\n    placeCopyModeCursor(surface: surface)"
+            },
+            {
+              "type": "replace",
+              "location": "In handleKeyboardCopyModeIfNeeded, .copyAndExit dispatch",
+              "description": "Ensure selection is placed before yanking in visual mode",
+              "code": "case .copyAndExit:\n    if keyboardCopyModeVisualActive {\n        // Ensure the full selection range is set before copying.\n        setVisualSelection(surface: surface)\n    }\n    _ = performBindingAction(\"copy_to_clipboard\")\n    _ = ghostty_surface_clear_selection_compat(surface)\n    setKeyboardCopyModeActive(false)"
+            },
+            {
+              "type": "replace",
+              "location": "In terminalKeyboardCopyModeAction, 'v' key mapping",
+              "description": "Map v to startSelection or clearSelection depending on visual mode state",
+              "code": "case \"v\":\n    if hasSelection {\n        return .clearSelection\n    } else {\n        return .startSelection\n    }"
+            },
+            {
+              "type": "add",
+              "location": "In terminalKeyboardCopyModeAction, 'o' key mapping",
+              "description": "Map o to swapSelectionAnchor",
+              "code": "case \"o\":\n    return .swapSelectionAnchor"
+            },
+            {
+              "type": "add",
+              "location": "In terminalKeyboardCopyModeAction, 'V' key mapping",
+              "description": "Map V to startLineSelection",
+              "code": "case \"V\", \"5\":\n    guard chars == \"V\" || normalized == [.shift] else { return nil }\n    return .startLineSelection"
+            }
+          ]
+        }
+      ],
+      "newTypes": [],
+      "newEnums": [],
+      "newStateVariables": [
+        {
+          "name": "copyVisualAnchor",
+          "type": "CopyModeCursor?",
+          "replaces": null,
+          "description": "Visual mode anchor. Set when user presses v. Selection spans from anchor to cursor."
+        }
+      ],
+      "newFunctions": [
+        {
+          "name": "setVisualSelection",
+          "signature": "private func setVisualSelection(surface: ghostty_surface_t)",
+          "description": "Sets Ghostty selection range from copyVisualAnchor to copyCursor",
+          "pseudocode": "guard keyboardCopyModeVisualActive, let anchor, let cursor\nstartRow = min(anchor.screenRow, cursor.screenRow)\nstartCol = min(anchor.screenCol, cursor.screenCol)\nendRow = max(...)\nendCol = max(...)\nghostty_surface_set_selection_range_compat(surface, startRow, startCol, endRow, endCol, false)"
+        }
+      ],
+      "modifiedFunctions": [
+        {
+          "name": "handleKeyboardCopyModeIfNeeded (.startSelection)",
+          "currentBehavior": "Sets keyboardCopyModeVisualActive = true only",
+          "newBehavior": "Sets copyVisualAnchor from copyCursor, places 1-cell selection at anchor",
+          "keyChanges": [
+            "Set copyVisualAnchor = copyCursor",
+            "Place initial 1-cell selection via set_selection_range_compat"
+          ]
+        },
+        {
+          "name": "handleKeyboardCopyModeIfNeeded (.moveCursor)",
+          "currentBehavior": "Moves cursor only",
+          "newBehavior": "Moves cursor then calls setVisualSelection if visual mode active",
+          "keyChanges": [
+            "After moveCopyModeCursor, check keyboardCopyModeVisualActive",
+            "If visual, call setVisualSelection"
+          ]
+        },
+        {
+          "name": "handleKeyboardCopyModeIfNeeded (.copyAndExit)",
+          "currentBehavior": "Copies Ghostty's active selection directly",
+          "newBehavior": "Ensures full selection is set via setVisualSelection before copying in visual mode",
+          "keyChanges": [
+            "If visual mode active, call setVisualSelection before copy_to_clipboard"
+          ]
+        },
+        {
+          "name": "terminalKeyboardCopyModeAction ('v' key)",
+          "currentBehavior": "Returns .startSelection always",
+          "newBehavior": "Returns .clearSelection if hasSelection (in visual mode), .startSelection otherwise",
+          "keyChanges": [
+            "Check hasSelection to toggle between start and clear"
+          ]
+        }
+      ],
+      "keyMappingChanges": [
+        {"key": "v", "currentAction": ".startSelection (always)", "newAction": ".startSelection (normal) / .clearSelection (visual)", "hasSelectionOverride": ".clearSelection"},
+        {"key": "V", "currentAction": "undefined", "newAction": ".startLineSelection", "hasSelectionOverride": null},
+        {"key": "o", "currentAction": "undefined", "newAction": ".swapSelectionAnchor", "hasSelectionOverride": null}
+      ],
+      "stateTransitions": [
+        {
+          "from": "Normal mode",
+          "to": "Visual mode",
+          "trigger": "v",
+          "description": "copyVisualAnchor = copyCursor, initial 1-cell selection at anchor, keyboardCopyModeVisualActive = true"
+        },
+        {
+          "from": "Visual mode",
+          "to": "Visual mode (selection extended)",
+          "trigger": "j/k/h/l",
+          "description": "Move cursor, set selection range anchor→cursor via setVisualSelection"
+        },
+        {
+          "from": "Visual mode",
+          "to": "Visual mode (anchor swapped)",
+          "trigger": "o",
+          "description": "Swap copyVisualAnchor ↔ copyCursor, re-place selection"
+        },
+        {
+          "from": "Normal mode",
+          "to": "Visual line mode",
+          "trigger": "V",
+          "description": "copyVisualAnchor at col 0, cursor at end of line, full-line selection, keyboardCopyModeVisualActive = true"
+        },
+        {
+          "from": "Visual mode",
+          "to": "Normal mode",
+          "trigger": "v (in visual)",
+          "description": "Clears visual selection, returns to normal mode with 1-cell cursor at current position"
+        },
+        {
+          "from": "Visual mode",
+          "to": "Copy mode inactive",
+          "trigger": "y",
+          "description": "Ensures full selection, copies to clipboard, exits copy mode"
+        }
+      ],
+      "verification": {
+        "manual": [
+          "Build: ./scripts/reload.sh --tag slice2-visual",
+          "Open terminal with multi-line output, enter copy mode (⌘⇧M)",
+          "Press j a few times → cursor moves down",
+          "Press v → selection starts from where cursor was. Cursor position is selection endpoint",
+          "Press j → selection extends downward from anchor. No jarring jump.",
+          "Press k → selection shrinks upward",
+          "Press h/l → selection extends left/right from anchor",
+          "Press o → cursor jumps to other end of selection. Anchor swaps.",
+          "Press v → returns to normal mode. Cursor stays at current position.",
+          "Press V → enters line mode. Full line selected.",
+          "Press j in line mode → extends downward line-by-line.",
+          "Press y → copies the selection and exits."
+        ],
+        "edgeCases": [
+          "Enter visual mode at viewport edge (top/bottom), extend past — viewport scrolls",
+          "Swap anchor (o) multiple times — toggle works correctly in both directions",
+          "Clear selection (v in visual) then re-enter visual — new anchor at new position"
+        ],
+        "automated": "CI test that verifies v + j + y produces correct clipboard content from correct starting position."
+      },
+      "removals": [],
+      "compatFunctionAdditions": []
+    },
+    {
+      "id": "slice-3-additional-motions",
+      "name": "Additional Motions (w/b/e, 0/^/$)",
+      "order": 3,
+      "summary": "Adds word-motion (w, b, e) and line-boundary (0, ^, $) motions in both normal and visual modes for Vim-like navigation.",
+      "userVisibleChange": {
+        "before": "w/b/e/0/^/$ → no effect or undefined behavior in copy mode",
+        "after": "w → cursor jumps to start of next word. b → start of previous word. e → end of current/next word. 0 → column 0. ^ → first non-whitespace. $ → last column of line."
+      },
+      "isPrerequisite": false,
+      "requiresForkCommit": false,
+      "dependencies": ["slice-0-ghostty-fork-api", "slice-1-cursor-state-normal-mode", "slice-2-visual-mode-reconnection"],
+      "ghosttyFork": null,
+      "files": [
+        {
+          "path": "Sources/GhosttyTerminalView.swift",
+          "changes": [
+            {
+              "type": "add",
+              "location": "New helper functions",
+              "description": "Add word-boundary logic: isCopyModeWordChar, findNextWordStart, findPrevWordStart, findWordEnd, findFirstNonWhitespace",
+              "code": "/// Word character classification for copy-mode motions.\n/// Matches Vim's `iskeyword`-style behavior: letters, digits, underscore\n/// are \"word\" characters; everything else is a boundary.\nprivate func isCopyModeWordChar(_ c: Character) -> Bool {\n    return c.isLetter || c.isNumber || c == \"_\"\n}\n\n/// Find the start of the next word from a given column on a line.\n/// Returns nil if no next word exists on this line.\nprivate func findNextWordStart(in line: String, from col: Int) -> Int? {\n    guard col < line.count else { return nil }\n    let chars = Array(line)\n    var i = col\n    \n    // Skip current word characters.\n    if i < chars.count, isCopyModeWordChar(chars[i]) {\n        while i < chars.count, isCopyModeWordChar(chars[i]) { i += 1 }\n    }\n    // Skip whitespace/non-word.\n    while i < chars.count, !isCopyModeWordChar(chars[i]) { i += 1 }\n    // Found start of next word.\n    return i < chars.count ? i : nil\n}\n\n/// Find the start of the current or previous word from a given column.\nprivate func findPrevWordStart(in line: String, from col: Int) -> Int {\n    let chars = Array(line)\n    var i = min(col, chars.count - 1)\n    if i < 0 { return 0 }\n    \n    // Skip whitespace backwards.\n    while i >= 0, !isCopyModeWordChar(chars[i]) { i -= 1 }\n    // Skip word characters backwards.\n    while i >= 0, isCopyModeWordChar(chars[i]) { i -= 1 }\n    // i is now at the boundary before the word. Return i+1.\n    return max(0, i + 1)\n}\n\n/// Find the end of the current or next word from a given column.\nprivate func findWordEnd(in line: String, from col: Int) -> Int? {\n    let chars = Array(line)\n    guard col < chars.count else { return nil }\n    var i = col\n    \n    // If on whitespace, skip to next word start.\n    if !isCopyModeWordChar(chars[i]) {\n        while i < chars.count, !isCopyModeWordChar(chars[i]) { i += 1 }\n        guard i < chars.count else { return nil }\n    }\n    // i is now at a word character. Skip to end of word.\n    while i < chars.count, isCopyModeWordChar(chars[i]) { i += 1 }\n    return i - 1  // last character of the word\n}\n\n/// Find the first non-whitespace column on a line.\nprivate func findFirstNonWhitespace(in line: String) -> Int {\n    let chars = Array(line)\n    for (i, c) in chars.enumerated() {\n        if !c.isWhitespace { return i }\n    }\n    return 0\n}"
+            },
+            {
+              "type": "add",
+              "location": "New helper function",
+              "description": "Add readLineContent to read a single screen row's text",
+              "code": "/// Read the text content of a single screen row.\n/// Uses the Ghostty selection API to read one row's worth of text.\nprivate func readLineContent(surface: ghostty_surface_t, screenRow: Int) -> String? {\n    let cols = Int(ghostty_surface_size(surface).columns)\n    guard cols > 0 else { return nil }\n    \n    // Set a 1-row selection to read just this line.\n    let r = UInt32(screenRow)\n    _ = ghostty_surface_set_selection_range_compat(\n        surface, r, 0, r, UInt32(cols - 1), false\n    )\n    \n    var text = ghostty_text_s()\n    defer { ghostty_surface_free_text(surface, &text) }\n    guard ghostty_surface_read_selection(surface, &text) else {\n        return nil\n    }\n    \n    guard let str = String(\n        data: Data(bytes: text.data, count: Int(text.len)),\n        encoding: .utf8\n    ) else { return nil }\n    \n    return str.replacingOccurrences(of: \"\\n\", with: \"\")\n}"
+            },
+            {
+              "type": "replace",
+              "location": "TerminalKeyboardCopyModeCursorDirection enum",
+              "description": "Extend direction enum with word and line-boundary cases",
+              "code": "enum TerminalKeyboardCopyModeCursorDirection: Equatable {\n    case up, down, left, right\n    case nextWordStart, prevWordStart, wordEnd\n    case lineStart, firstNonWhitespace, lineEnd\n}"
+            },
+            {
+              "type": "replace",
+              "location": "moveCopyModeCursor function",
+              "description": "Extend moveCopyModeCursor with word-motion and line-boundary handling",
+              "code": "private func moveCopyModeCursor(\n    surface: ghostty_surface_t,\n    direction: TerminalKeyboardCopyModeCursorDirection\n) {\n    guard var cursor = copyCursor else { return }\n    let size = ghostty_surface_size(surface)\n    let viewportRows = max(Int(size.rows), 1)\n    let viewportCols = max(Int(size.columns), 1)\n    \n    switch direction {\n    case .up:\n        cursor.screenRow = max(0, cursor.screenRow - 1)\n        cursor.viewportRow -= 1\n    case .down:\n        cursor.screenRow += 1\n        cursor.viewportRow += 1\n    case .left:\n        if cursor.screenCol > 0 {\n            cursor.screenCol -= 1\n        } else {\n            cursor.screenRow = max(0, cursor.screenRow - 1)\n            cursor.viewportRow -= 1\n            cursor.screenCol = viewportCols - 1\n        }\n    case .right:\n        if cursor.screenCol < viewportCols - 1 {\n            cursor.screenCol += 1\n        } else {\n            cursor.screenRow += 1\n            cursor.viewportRow += 1\n            cursor.screenCol = 0\n        }\n    case .nextWordStart:\n        guard let line = readLineContent(surface: surface, screenRow: cursor.screenRow) else { break }\n        if let next = findNextWordStart(in: line, from: cursor.screenCol) {\n            cursor.screenCol = next\n        } else {\n            cursor.screenRow += 1\n            cursor.viewportRow += 1\n            cursor.screenCol = 0\n        }\n    case .prevWordStart:\n        guard let line = readLineContent(surface: surface, screenRow: cursor.screenRow) else { break }\n        let prev = findPrevWordStart(in: line, from: cursor.screenCol)\n        if prev < cursor.screenCol {\n            cursor.screenCol = prev\n        } else {\n            if cursor.screenRow > 0 {\n                cursor.screenRow -= 1\n                cursor.viewportRow -= 1\n                cursor.screenCol = viewportCols - 1\n            }\n        }\n    case .wordEnd:\n        guard let line = readLineContent(surface: surface, screenRow: cursor.screenRow) else { break }\n        if let end = findWordEnd(in: line, from: cursor.screenCol) {\n            cursor.screenCol = end\n        }\n    case .firstNonWhitespace:\n        guard let line = readLineContent(surface: surface, screenRow: cursor.screenRow) else { break }\n        cursor.screenCol = findFirstNonWhitespace(in: line)\n    case .lineStart:\n        cursor.screenCol = 0\n    case .lineEnd:\n        cursor.screenCol = viewportCols - 1\n    }\n    \n    if direction == .up || direction == .down {\n        copyPreferredCol = cursor.screenCol\n    }\n    \n    copyCursor = cursor\n    placeCopyModeCursor(surface: surface)\n    scrollViewportIfCursorOutside(surface: surface, cursor: cursor, viewportRows: viewportRows)\n}"
+            },
+            {
+              "type": "add",
+              "location": "In terminalKeyboardCopyModeAction, chars switch",
+              "description": "Add w/b/e/0/^/$ key mappings",
+              "code": "case \"w\":\n    return hasSelection ? .adjustSelection(.right) : .moveCursor(.nextWordStart)\ncase \"b\":\n    return hasSelection ? .adjustSelection(.left) : .moveCursor(.prevWordStart)\ncase \"e\":\n    return hasSelection ? .adjustSelection(.right) : .moveCursor(.wordEnd)\ncase \"0\":\n    return hasSelection ? .adjustSelection(.beginningOfLine) : .moveCursor(.lineStart)\ncase \"^\":\n    return hasSelection ? .adjustSelection(.beginningOfLine) : .moveCursor(.firstNonWhitespace)\ncase \"$\", \"4\":\n    guard chars == \"$\" || normalized == [.shift] else { return nil }\n    return hasSelection ? .adjustSelection(.endOfLine) : .moveCursor(.lineEnd)"
+            }
+          ]
+        }
+      ],
+      "newTypes": [],
+      "newEnums": [],
+      "newStateVariables": [],
+      "newFunctions": [
+        {
+          "name": "isCopyModeWordChar",
+          "signature": "private func isCopyModeWordChar(_ c: Character) -> Bool",
+          "description": "Classifies a character as a word character (letter, digit, underscore) per Vim iskeyword style",
+          "pseudocode": "return c.isLetter || c.isNumber || c == \"_\""
+        },
+        {
+          "name": "findNextWordStart",
+          "signature": "private func findNextWordStart(in line: String, from col: Int) -> Int?",
+          "description": "Finds start of next word from column. Returns nil if no next word on this line.",
+          "pseudocode": "Skip current word chars, skip non-word chars, return position of next word char"
+        },
+        {
+          "name": "findPrevWordStart",
+          "signature": "private func findPrevWordStart(in line: String, from col: Int) -> Int",
+          "description": "Finds start of current or previous word from column",
+          "pseudocode": "Skip whitespace backwards, skip word chars backwards, return i+1"
+        },
+        {
+          "name": "findWordEnd",
+          "signature": "private func findWordEnd(in line: String, from col: Int) -> Int?",
+          "description": "Finds end of current or next word from column",
+          "pseudocode": "If on whitespace, skip to next word. Then skip word chars. Return last word char index."
+        },
+        {
+          "name": "findFirstNonWhitespace",
+          "signature": "private func findFirstNonWhitespace(in line: String) -> Int",
+          "description": "Finds first non-whitespace column on a line",
+          "pseudocode": "Enumerate chars, return first index where !c.isWhitespace, else 0"
+        },
+        {
+          "name": "readLineContent",
+          "signature": "private func readLineContent(surface: ghostty_surface_t, screenRow: Int) -> String?",
+          "description": "Reads text content of a single screen row via Ghostty selection API",
+          "pseudocode": "Set 1-row selection via set_selection_range_compat\nRead selection via ghostty_surface_read_selection\nConvert to String, trim newlines\nNote: temporarily replaces selection; placeCopyModeCursor restores it after"
+        }
+      ],
+      "modifiedFunctions": [
+        {
+          "name": "moveCopyModeCursor",
+          "currentBehavior": "Handles only .up/.down/.left/.right",
+          "newBehavior": "Extended to handle .nextWordStart/.prevWordStart/.wordEnd/.lineStart/.firstNonWhitespace/.lineEnd with line-reading and word-boundary logic",
+          "keyChanges": [
+            "Add cases for new word-motion and line-boundary directions",
+            "Read line content via readLineContent for word/line operations",
+            "Word motions wrap to next/previous line when no word found",
+            "Left/right now wrap to previous/next line at boundaries"
+          ]
+        },
+        {
+          "name": "TerminalKeyboardCopyModeCursorDirection",
+          "currentBehavior": "Enum with up/down/left/right",
+          "newBehavior": "Extended with nextWordStart, prevWordStart, wordEnd, lineStart, firstNonWhitespace, lineEnd",
+          "keyChanges": [
+            "Add 6 new cases for word and line-boundary motions"
+          ]
+        }
+      ],
+      "keyMappingChanges": [
+        {"key": "w", "currentAction": "undefined", "newAction": ".moveCursor(.nextWordStart)", "hasSelectionOverride": ".adjustSelection(.right)"},
+        {"key": "b", "currentAction": "undefined", "newAction": ".moveCursor(.prevWordStart)", "hasSelectionOverride": ".adjustSelection(.left)"},
+        {"key": "e", "currentAction": "undefined", "newAction": ".moveCursor(.wordEnd)", "hasSelectionOverride": ".adjustSelection(.right)"},
+        {"key": "0", "currentAction": "undefined", "newAction": ".moveCursor(.lineStart)", "hasSelectionOverride": ".adjustSelection(.beginningOfLine)"},
+        {"key": "^", "currentAction": "undefined", "newAction": ".moveCursor(.firstNonWhitespace)", "hasSelectionOverride": ".adjustSelection(.beginningOfLine)"},
+        {"key": "$", "currentAction": "undefined", "newAction": ".moveCursor(.lineEnd)", "hasSelectionOverride": ".adjustSelection(.endOfLine)"}
+      ],
+      "stateTransitions": [],
+      "verification": {
+        "manual": [
+          "Build: ./scripts/reload.sh --tag slice3-motions",
+          "Enter copy mode in terminal with text output",
+          "w → jumps to start of next word. Repeated w skips through words.",
+          "b → jumps back to start of previous word",
+          "e → jumps to end of current/next word",
+          "0 → goes to column 0",
+          "^ → goes to first non-whitespace character on the line",
+          "$ → goes to last column on the line",
+          "In visual mode, w/b/e extend selection one cell at a time",
+          "3w → jumps forward 3 words",
+          "5j → moves cursor down 5 rows"
+        ],
+        "edgeCases": [
+          "Line with only whitespace: ^ goes to col 0",
+          "Line longer than viewport: $ goes to viewport-col-1",
+          "Word at end of line: w wraps to next line",
+          "Word at start of line: b wraps to previous line"
+        ],
+        "automated": "Existing CI E2E copy-mode tests still pass."
+      },
+      "removals": [],
+      "compatFunctionAdditions": [],
+      "notes": "Design decision: In this slice, visual-mode w/b/e use adjust_selection with basic single-step directions. Full visual-mode word motions (word-boundary-aware selection extension via set_selection_range) deferred to a future slice."
+    },
+    {
+      "id": "slice-4-visual-block-mode",
+      "name": "Visual Block Mode",
+      "order": 4,
+      "summary": "Adds Ctrl-v to enter visual block (rectangle) mode with rectangular selection between anchor and cursor.",
+      "userVisibleChange": {
+        "before": "Ctrl-v → does nothing. No rectangle selection available.",
+        "after": "Ctrl-v → enters visual block mode. Rectangle selection from anchor to cursor. Yank copies rectangular block of text."
+      },
+      "isPrerequisite": false,
+      "requiresForkCommit": false,
+      "dependencies": ["slice-0-ghostty-fork-api", "slice-1-cursor-state-normal-mode", "slice-2-visual-mode-reconnection"],
+      "ghosttyFork": null,
+      "files": [
+        {
+          "path": "Sources/GhosttyTerminalView.swift",
+          "changes": [
+            {
+              "type": "add",
+              "location": "New state variable (near copyVisualAnchor)",
+              "description": "Add visual block mode flag",
+              "code": "/// True when visual block mode is active (Ctrl-v).\nprivate var copyVisualBlockActive = false"
+            },
+            {
+              "type": "add",
+              "location": "CopyModeAction enum",
+              "description": "Add startBlockSelection action",
+              "code": "case startBlockSelection"
+            },
+            {
+              "type": "add",
+              "location": "In terminalKeyboardCopyModeAction, Ctrl-v check",
+              "description": "Map Ctrl-v to startBlockSelection",
+              "code": "// Ctrl-v: codes vary. Check char first, then keyCode as fallback.\nif chars == \"\\u{16}\" {  // Ctrl-v produces SYN (0x16)\n    return .startBlockSelection\n}"
+            },
+            {
+              "type": "add",
+              "location": "In handleKeyboardCopyModeIfNeeded, .startBlockSelection dispatch",
+              "description": "Add block selection handler",
+              "code": "case .startBlockSelection:\n    guard let cursor = copyCursor else { break }\n    copyVisualAnchor = cursor\n    keyboardCopyModeVisualActive = true\n    copyVisualBlockActive = true\n    // Set initial 1-cell selection at anchor.\n    let r = UInt32(cursor.screenRow), c = UInt32(cursor.screenCol)\n    _ = ghostty_surface_set_selection_range_compat(surface, r, c, r, c, true)"
+            },
+            {
+              "type": "replace",
+              "location": "setVisualSelection function",
+              "description": "Pass is_rectangular: true when block mode active",
+              "code": "private func setVisualSelection(surface: ghostty_surface_t) {\n    guard keyboardCopyModeVisualActive,\n          let anchor = copyVisualAnchor,\n          let cursor = copyCursor else { return }\n    \n    let isRect = copyVisualBlockActive\n    \n    let startRow = UInt32(min(anchor.screenRow, cursor.screenRow))\n    let startCol = UInt32(min(anchor.screenCol, cursor.screenCol))\n    let endRow   = UInt32(max(anchor.screenRow, cursor.screenRow))\n    let endCol   = UInt32(max(anchor.screenCol, cursor.screenCol))\n    \n    _ = ghostty_surface_set_selection_range_compat(\n        surface, startRow, startCol, endRow, endCol, isRect\n    )\n}"
+            },
+            {
+              "type": "replace",
+              "location": "In handleKeyboardCopyModeIfNeeded, .clearSelection dispatch",
+              "description": "Clear block flag on selection clear",
+              "code": "case .clearSelection:\n    keyboardCopyModeVisualActive = false\n    copyVisualBlockActive = false\n    copyVisualAnchor = nil\n    _ = ghostty_surface_clear_selection_compat(surface)\n    placeCopyModeCursor(surface: surface)"
+            }
+          ]
+        }
+      ],
+      "newTypes": [],
+      "newEnums": [],
+      "newStateVariables": [
+        {
+          "name": "copyVisualBlockActive",
+          "type": "Bool",
+          "replaces": null,
+          "description": "True when visual block mode is active (Ctrl-v). Determines is_rectangular flag in setVisualSelection."
+        }
+      ],
+      "newFunctions": [],
+      "modifiedFunctions": [
+        {
+          "name": "setVisualSelection",
+          "currentBehavior": "Passes is_rectangular: false always",
+          "newBehavior": "Passes is_rectangular: copyVisualBlockActive",
+          "keyChanges": [
+            "Check copyVisualBlockActive to determine isRect parameter"
+          ]
+        },
+        {
+          "name": "handleKeyboardCopyModeIfNeeded (.clearSelection)",
+          "currentBehavior": "Clears visual mode, resets anchor",
+          "newBehavior": "Also clears copyVisualBlockActive flag",
+          "keyChanges": [
+            "Set copyVisualBlockActive = false"
+          ]
+        }
+      ],
+      "keyMappingChanges": [
+        {"key": "Ctrl-v", "currentAction": "undefined", "newAction": ".startBlockSelection", "hasSelectionOverride": null}
+      ],
+      "stateTransitions": [
+        {
+          "from": "Normal mode",
+          "to": "Visual block mode",
+          "trigger": "Ctrl-v",
+          "description": "copyVisualAnchor = copyCursor, copyVisualBlockActive = true, keyboardCopyModeVisualActive = true, 1-cell rectangular selection at anchor"
+        },
+        {
+          "from": "Visual block mode",
+          "to": "Visual block mode (selection extended)",
+          "trigger": "j/k/h/l",
+          "description": "Cursor moves, setVisualSelection called with isRect=true, rectangle grows"
+        },
+        {
+          "from": "Visual block mode",
+          "to": "Normal mode",
+          "trigger": "v (in block mode)",
+          "description": "Clears block flag and selection, returns to normal mode with 1-cell cursor"
+        },
+        {
+          "from": "Visual block mode",
+          "to": "Copy mode inactive",
+          "trigger": "y",
+          "description": "Ghostty read_selection handles rectangular selection, copies block content, exits"
+        }
+      ],
+      "verification": {
+        "manual": [
+          "Build: ./scripts/reload.sh --tag slice4-block",
+          "Enter copy mode. Press v → regular visual mode. Press Ctrl-v instead → visual block mode.",
+          "Move cursor with j/k/h/l → rectangle selection grows.",
+          "Press y → copies block content to clipboard.",
+          "Press o in block mode → swaps anchor, preserves block mode.",
+          "Press v in block mode → returns to normal mode, clears block flag."
+        ],
+        "edgeCases": [
+          "1-column block, 1-row block, block spanning 1 row",
+          "Block extending past viewport → viewport scrolls",
+          "Transition from block mode to regular visual mode and back"
+        ],
+        "automated": "Existing CI E2E copy-mode tests still pass."
+      },
+      "removals": [],
+      "compatFunctionAdditions": [],
+      "notes": "Ghostty's read_selection already handles rectangular selections — no changes needed for the yank handler. Clipboard contains newline-separated lines, each trimmed to block width."
+    },
+    {
+      "id": "slice-5-selection-color-enhancement",
+      "name": "Selection Color & Overlay Enhancement",
+      "order": 5,
+      "summary": "Ensures the copy-mode cursor and selection are always clearly visible regardless of theme, via high-contrast selection color override and optional overlay cursor.",
+      "userVisibleChange": {
+        "before": "Cursor/selection may be invisible on low-contrast themes. Selection uses theme's selection colors (could be subtle). No fallback if Ghostty rendering fails.",
+        "after": "Cursor always visible with forced high-contrast colors. Selection uses high-contrast override in copy mode. Optional overlay cursor CALayer as fallback."
+      },
+      "isPrerequisite": false,
+      "requiresForkCommit": false,
+      "dependencies": ["slice-1-cursor-state-normal-mode", "slice-2-visual-mode-reconnection"],
+      "ghosttyFork": null,
+      "files": [
+        {
+          "path": "Sources/GhosttyTerminalView.swift",
+          "changes": [
+            {
+              "type": "modify",
+              "location": "setKeyboardCopyModeActive",
+              "description": "Toggle high-contrast selection config on copy-mode entry/exit",
+              "code": "private func setKeyboardCopyModeActive(_ active: Bool) {\n    // ... existing activation logic ...\n    \n    if active {\n        // Force high-contrast selection colors for copy mode.\n        applyCopyModeSelectionOverride()\n    } else {\n        restoreUserSelectionColors()\n    }\n}"
+            },
+            {
+              "type": "add",
+              "location": "New state and functions for overlay cursor",
+              "description": "Add optional CALayer overlay cursor as secondary enhancement",
+              "code": "/// A CALayer drawn over the terminal surface at the cursor position.\nprivate var copyModeOverlayCursor: CALayer?\n\nprivate func showOverlayCursor(at cursor: CopyModeCursor, surface: ghostty_surface_t) {\n    let layer = copyModeOverlayCursor ?? {\n        let l = CALayer()\n        l.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.6).cgColor\n        l.cornerRadius = 2\n        self.layer?.addSublayer(l)\n        copyModeOverlayCursor = l\n        return l\n    }()\n    \n    // Position the overlay at the cursor's pixel position.\n    // Compute from ghostty_surface_size cell dimensions.\n    let cellW = ... // compute from ghostty_surface_size.cell_width_px\n    let cellH = ... // compute from ghostty_surface_size.cell_height_px\n    let viewportY = cursor.viewportRow\n    let viewportX = cursor.screenCol\n    layer.frame = CGRect(\n        x: CGFloat(viewportX) * cellW,\n        y: CGFloat(viewportY) * cellH,\n        width: cellW,\n        height: cellH\n    )\n    layer.isHidden = false\n}\n\nprivate func hideOverlayCursor() {\n    copyModeOverlayCursor?.isHidden = true\n}"
+            }
+          ]
+        },
+        {
+          "path": "ghostty/src/config/Config.zig",
+          "changes": [
+            {
+              "type": "optional",
+              "location": "Config keys (if needed)",
+              "description": "If no existing config key provides sufficient contrast, add copy-mode-specific config overrides. Prefer existing selection-background/selection-foreground keys.",
+              "code": "// Optional: only if existing keys are insufficient"
+            }
+          ]
+        }
+      ],
+      "newTypes": [],
+      "newEnums": [],
+      "newStateVariables": [
+        {
+          "name": "copyModeOverlayCursor",
+          "type": "CALayer?",
+          "replaces": null,
+          "description": "Optional overlay cursor layer for high-visibility fallback. Only enabled via Debug menu toggle or config."
+        }
+      ],
+      "newFunctions": [
+        {
+          "name": "showOverlayCursor",
+          "signature": "private func showOverlayCursor(at cursor: CopyModeCursor, surface: ghostty_surface_t)",
+          "description": "Renders a yellow semi-transparent overlay at the cursor's viewport position",
+          "pseudocode": "Create or reuse CALayer\nSet yellow background with alpha\nPosition at cursor.viewportRow * cellH, cursor.screenCol * cellW\nShow layer"
+        },
+        {
+          "name": "hideOverlayCursor",
+          "signature": "private func hideOverlayCursor()",
+          "description": "Hides the overlay cursor without removing it",
+          "pseudocode": "copyModeOverlayCursor?.isHidden = true"
+        },
+        {
+          "name": "applyCopyModeSelectionOverride",
+          "signature": "private func applyCopyModeSelectionOverride()",
+          "description": "Applies high-contrast selection colors for copy mode (bright yellow on black)",
+          "pseudocode": "Override selection-background = #FFD700, selection-foreground = #000000\nvia Ghostty config string API or config-reload mechanism"
+        },
+        {
+          "name": "restoreUserSelectionColors",
+          "signature": "private func restoreUserSelectionColors()",
+          "description": "Restores user's original selection colors on copy-mode exit",
+          "pseudocode": "Revert selection-background/foreground to user's saved settings"
+        }
+      ],
+      "modifiedFunctions": [
+        {
+          "name": "setKeyboardCopyModeActive",
+          "currentBehavior": "Activates/deactivates copy mode with cursor placement",
+          "newBehavior": "Also applies high-contrast selection override on entry, restores user colors on exit",
+          "keyChanges": [
+            "Call applyCopyModeSelectionOverride() on activation",
+            "Call restoreUserSelectionColors() on deactivation"
+          ]
+        }
+      ],
+      "keyMappingChanges": [],
+      "stateTransitions": [],
+      "verification": {
+        "manual": [
+          "Build: ./scripts/reload.sh --tag slice5-colors",
+          "Switch to a low-contrast theme (e.g., Solarized Light with subtle selection)",
+          "Enter copy mode → cursor is bright yellow on black, clearly visible",
+          "Enter visual mode → selection range is bright yellow on black",
+          "Exit copy mode → original theme colors restored",
+          "Switch themes while in copy mode → colors stay high-contrast (or degrade gracefully)"
+        ],
+        "edgeCases": [
+          "Dark themes, light themes, high-contrast accessibility themes",
+          "Multiple surfaces open in splits — each surface's colors independently managed"
+        ],
+        "automated": "Existing CI E2E copy-mode tests still pass."
+      },
+      "removals": [],
+      "compatFunctionAdditions": [],
+      "notes": "Primary approach: config override using existing selection-background/selection-foreground Ghostty keys. Overlay cursor is a secondary enhancement, only enabled via Debug menu toggle or advanced config. The overlay should NOT be enabled by default."
+    }
+  ]
+}

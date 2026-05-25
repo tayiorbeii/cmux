@@ -246,11 +246,11 @@ extension CMUXCLI {
     }
 
     static func hookCommandString(for def: AgentHookDef, event: AgentHookDef.HookEvent) -> String {
-        "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux hooks \(def.name) \(event.cmuxSubcommand) || echo '{}'"
+        "[ -n \"${CMUX_SURFACE_ID:-}${CMUX_WORKSPACE_ID:-}${TMUX:-}\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux hooks \(def.name) \(event.cmuxSubcommand) || echo '{}'"
     }
 
     static func feedHookCommandString(for def: AgentHookDef, agentEvent: String) -> String {
-        "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux hooks feed --source \(def.name) --event \(agentEvent) || echo '{}'"
+        "[ -n \"${CMUX_SURFACE_ID:-}${CMUX_WORKSPACE_ID:-}${TMUX:-}\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux hooks feed --source \(def.name) --event \(agentEvent) || echo '{}'"
     }
 
     static func isCmuxOwnedHookCommand(_ command: String, for def: AgentHookDef, includeLegacy: Bool = true) -> Bool {

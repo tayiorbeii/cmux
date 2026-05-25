@@ -64,18 +64,32 @@ and browser state. Restored agent terminals stay idle until you resume them manu
 
 ## tmux alerts and pane navigation
 
-cmux understands tmux alert hooks when they call the feed bridge with `--source tmux-bridge`:
+cmux understands tmux alert hooks when they call the feed bridge with `--source tmux-bridge`. Install the managed hooks with:
+
+```bash
+cmux hooks tmux install
+```
+
+The installer only removes/replaces hook entries containing cmux's `cmux-tmux-bridge` marker before appending its own hooks; it does not clear unrelated user tmux hooks. tmux must still have the relevant alert monitors enabled (`monitor-bell`, `monitor-activity`, and/or `monitor-silence`) for activity and silence hooks to fire. To remove the managed entries, run:
+
+```bash
+cmux hooks tmux uninstall
+```
+
+Equivalent manual tmux hooks (use `-a` so existing hooks are preserved; keep the marker if you want `cmux hooks tmux uninstall` to remove them later):
 
 ```tmux
 set -g monitor-bell on
 set -g monitor-activity on
 set -g monitor-silence 15
-set-hook -g alert-bell 'run-shell "cmux hooks feed --source tmux-bridge --event bell --pane-id #{pane_id} --session #{session_name} --window #{window_index} --pane #{pane_index} --command #{pane_current_command}"'
-set-hook -g alert-activity 'run-shell "cmux hooks feed --source tmux-bridge --event activity --pane-id #{pane_id} --session #{session_name} --window #{window_index} --pane #{pane_index} --command #{pane_current_command}"'
-set-hook -g alert-silence 'run-shell "cmux hooks feed --source tmux-bridge --event silence --pane-id #{pane_id} --session #{session_name} --window #{window_index} --pane #{pane_index} --command #{pane_current_command}"'
+set-hook -g -a alert-bell 'run-shell -b "cmux hooks feed --source tmux-bridge --event bell --pane-id #{q:pane_id} --pane-tty #{q:pane_tty} --session #{q:session_name} --window #{q:window_index} --pane #{q:pane_index} --command #{q:pane_current_command} # cmux-tmux-bridge"'
+set-hook -g -a alert-activity 'run-shell -b "cmux hooks feed --source tmux-bridge --event activity --pane-id #{q:pane_id} --pane-tty #{q:pane_tty} --session #{q:session_name} --window #{q:window_index} --pane #{q:pane_index} --command #{q:pane_current_command} # cmux-tmux-bridge"'
+set-hook -g -a alert-silence 'run-shell -b "cmux hooks feed --source tmux-bridge --event silence --pane-id #{q:pane_id} --pane-tty #{q:pane_tty} --session #{q:session_name} --window #{q:window_index} --pane #{q:pane_index} --command #{q:pane_current_command} # cmux-tmux-bridge"'
 ```
 
-The bridge resolves `#{pane_id}` to `#{pane_tty}` and sends a native cmux notification through `notification.create_for_caller`, so unread badges, Dock badges, desktop notifications, pane rings, and workspace reordering use the same routing path as terminal notifications.
+The bridge preserves the inner tmux pane metadata (`pane_id`, `pane_tty`, session/window/pane, and current command) but routes the notification by the outer tmux client TTY when available. If the cmux workspace/surface environment is present it is still passed as an explicit preference; otherwise cmux falls back through caller TTY, the remembered tmux-pane route table, and finally the selected workspace.
+
+Agent lifecycle/status hooks use the same caller-aware path (`status.set_for_caller`, also available as `set_status_for_caller`) and no longer require `CMUX_SURFACE_ID` when running inside tmux. Notifications use `notification.create_for_caller`. These APIs accept `preferred_workspace_id`, `preferred_surface_id`, `caller_tty`, `prefer_tty`, `allow_selected_fallback`, and tmux pane metadata (`tmux_pane_id`, `tmux_pane_tty`, `tmux_session`, `tmux_window`, `tmux_pane`, `tmux_command`). The generated hooks pass caller TTY plus tmux pane metadata so Claude/Codex/Gemini/Cursor/Copilot/CodeBuddy/Factory/Qoder status changes can land on the embedded cmux surface even when tmux strips or stales the original cmux environment.
 
 **Settings > Terminal > tmux-Aware Pane Navigation** enables the native Focus Pane shortcuts (Cmd+Option+Arrow by default), Option+h/j/k/l, and Ghostty split navigation to move inside tmux first. When tmux reports `pane_at_left`, `pane_at_right`, `pane_at_top`, or `pane_at_bottom`, cmux falls through to native split focus. Focus Pane shortcuts remain configurable in **Keyboard Shortcuts** or `cmux.json`.
 
