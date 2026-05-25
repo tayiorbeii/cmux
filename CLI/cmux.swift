@@ -24261,8 +24261,24 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     }
 
     private func tmuxBridgeHookCommand(event: String) -> String {
-        let bridge = "cmux hooks feed --source tmux-bridge --event \(event) --pane-id #{q:pane_id} --pane-tty #{q:pane_tty} --session #{q:session_name} --window #{q:window_index} --pane #{q:pane_index} --command #{q:pane_current_command} # cmux-tmux-bridge"
+        let cli = tmuxBridgeCLICommand()
+        let bridge = "\(cli) hooks feed --source tmux-bridge --event \(event) --pane-id #{q:pane_id} --pane-tty #{q:pane_tty} --session #{q:session_name} --window #{q:window_index} --pane #{q:pane_index} --command #{q:pane_current_command} # cmux-tmux-bridge"
         return "run-shell -b \(shellQuote(bridge))"
+    }
+
+    private func tmuxBridgeCLICommand() -> String {
+        let env = ProcessInfo.processInfo.environment
+        if let bundledPath = env["CMUX_BUNDLED_CLI_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !bundledPath.isEmpty,
+           FileManager.default.isExecutableFile(atPath: bundledPath) {
+            return shellQuote(bundledPath)
+        }
+        if let executablePath = currentExecutablePath()?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !executablePath.isEmpty,
+           FileManager.default.isExecutableFile(atPath: executablePath) {
+            return shellQuote(executablePath)
+        }
+        return "cmux"
     }
 
     private func removeCmuxTmuxBridgeHook(_ hook: String) throws -> Int {
