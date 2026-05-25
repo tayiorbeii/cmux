@@ -3665,7 +3665,7 @@ struct CMUXCLI {
         case "notify":
             let explicitTitle = optionValue(commandArgs, name: "--title")?.trimmingCharacters(in: .whitespacesAndNewlines)
             let title = explicitTitle?.isEmpty == false ? explicitTitle! : (defaultNotificationTitleForCaller() ?? "Notification")
-            let subtitle = optionValue(commandArgs, name: "--subtitle") ?? ""
+            let subtitle = optionValue(commandArgs, name: "--subtitle") ?? defaultNotificationSubtitleForCaller() ?? ""
             let bodyMaxBytes = try notificationBodyMaxBytes(from: commandArgs)
             let explicitBodyArgument = optionValue(commandArgs, name: "--body") ?? optionValue(commandArgs, name: "--message")
             let explicitBody: String?
@@ -11070,6 +11070,21 @@ struct CMUXCLI {
             guard let value, !value.isEmpty, value != "tmux" else { return nil }
             return conciseNotificationTitleContext(value)
         }.first
+    }
+
+    private func defaultNotificationSubtitleForCaller() -> String? {
+        guard ProcessInfo.processInfo.environment["TMUX"]?.isEmpty == false else { return nil }
+        let session = Self.normalizedTmuxHookValue(Self.runTmuxForHook(arguments: ["display-message", "-p", "#{session_name}"]))
+        let window = Self.normalizedTmuxHookValue(Self.runTmuxForHook(arguments: ["display-message", "-p", "#{window_index}"]))
+        let pane = Self.normalizedTmuxHookValue(Self.runTmuxForHook(arguments: ["display-message", "-p", "#{pane_index}"]))
+        let location = [window, pane].compactMap { value -> String? in
+            guard let value, !value.isEmpty else { return nil }
+            return value
+        }.joined(separator: ".")
+        if let session, !session.isEmpty, !location.isEmpty { return "tmux \(session):\(location)" }
+        if let session, !session.isEmpty { return "tmux \(session)" }
+        if !location.isEmpty { return "tmux pane \(location)" }
+        return nil
     }
 
     private func notificationBodyMaxBytes(from args: [String]) throws -> Int {
