@@ -7490,7 +7490,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     cursor.viewportRow += rowDelta
                     break
                 }
-                // Already at first word — try previous line, from end.
+                // prev == col: cursor is at the start of the first word
+                // on this line.  Move one position back and retry on the
+                // same line first, otherwise go to the previous line.
+                if col > 0 {
+                    col -= 1
+                    continue
+                }
+                // At col 0 — go to previous line, from end.
                 if row <= 0 { break }
                 row -= 1
                 col = max(0, viewportCols - 1)
