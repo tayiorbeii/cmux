@@ -3661,7 +3661,8 @@ struct CMUXCLI {
         case "notify":
             let title = optionValue(commandArgs, name: "--title") ?? "Notification"
             let subtitle = optionValue(commandArgs, name: "--subtitle") ?? ""
-            let explicitBody = optionValue(commandArgs, name: "--body") ?? optionValue(commandArgs, name: "--message")
+            let explicitBodyArgument = optionValue(commandArgs, name: "--body") ?? optionValue(commandArgs, name: "--message")
+            let explicitBody = explicitBodyArgument == "-" ? notificationBodyFromStandardInputIfAvailable() : explicitBodyArgument
             let positionalBody = positionalArgumentsExcludingOptions(
                 commandArgs,
                 optionsWithValues: ["--title", "--subtitle", "--body", "--message", "--workspace", "--surface"]
@@ -10547,8 +10548,8 @@ struct CMUXCLI {
             Flags:
               --title <text>         Notification title (default: "Notification")
               --subtitle <text>      Notification subtitle
-              --body <text>          Notification body
-              --message <text>       Alias for --body
+              --body <text|->        Notification body (- reads stdin)
+              --message <text|->     Alias for --body
               --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
               --surface <id|ref>     Target surface (default: $CMUX_SURFACE_ID)
 
@@ -10556,6 +10557,7 @@ struct CMUXCLI {
               cmux notify --title "Build done" --body "All tests passed"
               cmux notify --title "Build done" "All tests passed"
               make 2>&1 | cmux notify --title "Build finished"
+              git diff | cmux notify --title "Diff ready" --body -
               # stdin bodies are capped to keep socket notifications lightweight
               cmux notify --title "Error" --subtitle "test.swift" --body "Line 42: syntax error"
             """
