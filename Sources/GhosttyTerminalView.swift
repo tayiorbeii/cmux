@@ -3745,6 +3745,27 @@ class GhosttyApp {
             if action.tag == GHOSTTY_ACTION_RING_BELL {
                 performOnMain {
                     self.ringBell()
+                    // Also create a cmux native notification for bell events
+                    guard let tabManager = AppDelegate.shared?.tabManager,
+                          let tabId = tabManager.selectedTabId else {
+                        return
+                    }
+                    let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? tabManager
+                    if ClaudeCodeIntegrationSettings.hooksEnabled(), let workspace = owningManager.tabs.first(where: { $0.id == tabId }),
+                       workspace.agentPIDs["claude_code"] != nil {
+                        return
+                    }
+                    let tabTitle = owningManager.titleForTab(tabId) ?? "Terminal"
+                    let surfaceId = tabManager.focusedSurfaceId(for: tabId)
+                    TerminalNotificationStore.shared.addNotification(
+                        tabId: tabId,
+                        surfaceId: surfaceId,
+                        title: tabTitle,
+                        subtitle: "",
+                        body: String(localized: "notification.terminalBell.body", defaultValue: "Terminal bell"),
+                        cooldownKey: "bell:\(tabId.uuidString)",
+                        cooldownInterval: 3.0
+                    )
                 }
                 return true
             }
@@ -3846,8 +3867,26 @@ class GhosttyApp {
                 return tabManager.createSplit(tabId: tabId, surfaceId: surfaceId, direction: direction) != nil
             }
         case GHOSTTY_ACTION_RING_BELL:
+            guard let tabId = surfaceView.tabId else { return true }
+            let surfaceId = surfaceView.terminalSurface?.id
             performOnMain {
                 self.ringBell()
+                // Also create a cmux native notification for bell events
+                let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? AppDelegate.shared?.tabManager
+                if ClaudeCodeIntegrationSettings.hooksEnabled(), let workspace = owningManager?.tabs.first(where: { $0.id == tabId }),
+                   workspace.agentPIDs["claude_code"] != nil {
+                    return
+                }
+                let tabTitle = owningManager?.titleForTab(tabId) ?? "Terminal"
+                TerminalNotificationStore.shared.addNotification(
+                    tabId: tabId,
+                    surfaceId: surfaceId,
+                    title: tabTitle,
+                    subtitle: "",
+                    body: String(localized: "notification.terminalBell.body", defaultValue: "Terminal bell"),
+                    cooldownKey: "bell:\(tabId.uuidString)",
+                    cooldownInterval: 3.0
+                )
             }
             return true
         case GHOSTTY_ACTION_GOTO_SPLIT:
