@@ -7239,6 +7239,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         copyVisualBlockActive = false
         keyboardCopyModeActive = active
         if active, let surface {
+            // Apply high-contrast selection color override for copy mode.
+            // Uses Ghostty's config-load-string API to temporarily override
+            // selection-background and selection-foreground per-surface.
+            applyCopyModeSelectionColorOverride(surface: surface)
             // Compute cursor position from terminal cursor anchor.
             if let anchor = keyboardCopyModeSelectionAnchor(surface: surface) {
                 let cellH = copyModeCellHeight(surface: surface)
@@ -7264,8 +7268,39 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             copyViewportTopScreenRow = 0
             copyPreferredCol = 0
             removeCopyModeOverlays()
+            // Restore user/theme selection colors on copy-mode exit.
+            // A soft per-surface reload re-reads the user's config files
+            // and reverts the copy-mode override.
+            if let activeSurface = self.surface {
+                GhosttyApp.shared.reloadSurfaceConfiguration(
+                    activeSurface,
+                    soft: true,
+                    source: "copyMode.exit.restoreSelectionColors"
+                )
+            }
         }
         terminalSurface?.setKeyboardCopyModeActive(active)
+    }
+
+    /// Applies a high-contrast selection color override to the given surface
+    /// so the copy-mode cursor and selection remain visible on any theme.
+    private func applyCopyModeSelectionColorOverride(surface: ghostty_surface_t) {
+        guard let overrideConfig = ghostty_config_new() else { return }
+        let configString = """
+        selection-background = #FFD700
+        selection-foreground = #000000
+        """
+        configString.withCString { contents in
+            "copy-mode-override".withCString { path in
+                ghostty_config_load_string(overrideConfig, contents, UInt(configString.utf8.count), path)
+            }
+        }
+        ghostty_config_finalize(overrideConfig)
+        ghostty_surface_update_config(surface, overrideConfig)
+        ghostty_config_free(overrideConfig)
+#if DEBUG
+        cmuxDebugLog("copyMode.selectionColorOveride applied surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
+#endif
     }
 
     private func performBindingAction(_ action: String, repeatCount: Int) {
