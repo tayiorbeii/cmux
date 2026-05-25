@@ -3681,7 +3681,10 @@ struct CMUXCLI {
                 optionsWithValues: ["--title", "--subtitle", "--body", "--body-file", "--body-max-bytes", "--message", "--workspace", "--surface"]
             ).joined(separator: " ")
             let stdinBody = explicitBody == nil && positionalBody.isEmpty ? notificationBodyFromStandardInputIfAvailable(maxBytes: bodyMaxBytes) : nil
-            let body = explicitBody ?? (positionalBody.isEmpty ? (stdinBody ?? "") : positionalBody)
+            let resolvedBody = explicitBody ?? (positionalBody.isEmpty ? (stdinBody ?? "") : positionalBody)
+            let body = resolvedBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? (defaultNotificationBodyForCaller() ?? "")
+                : resolvedBody
             let explicitWorkspaceArg = optionValue(commandArgs, name: "--workspace")
             let env = ProcessInfo.processInfo.environment
             let preferTTYFallback = windowId == nil && env["TMUX"]?.isEmpty == false
@@ -11085,6 +11088,30 @@ struct CMUXCLI {
         if let session, !session.isEmpty { return "tmux \(session)" }
         if !location.isEmpty { return "tmux pane \(location)" }
         return nil
+    }
+
+    private func defaultNotificationBodyForCaller() -> String? {
+        guard ProcessInfo.processInfo.environment["TMUX"]?.isEmpty == false else { return nil }
+        let command = Self.normalizedTmuxHookValue(Self.runTmuxForHook(arguments: ["display-message", "-p", "#{pane_current_command}"]))
+        let path = Self.normalizedTmuxHookValue(Self.runTmuxForHook(arguments: ["display-message", "-p", "#{pane_current_path}"]))
+        var parts: [String] = []
+        if let command, !command.isEmpty {
+            parts.append(
+                String.localizedStringWithFormat(
+                    String(localized: "cli.tmuxBridge.notification.body.command", defaultValue: "Command: %@"),
+                    command
+                )
+            )
+        }
+        if let path, !path.isEmpty {
+            parts.append(
+                String.localizedStringWithFormat(
+                    String(localized: "cli.tmuxBridge.notification.body.cwd", defaultValue: "Directory: %@"),
+                    path
+                )
+            )
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: "\n")
     }
 
     private func notificationBodyMaxBytes(from args: [String]) throws -> Int {
