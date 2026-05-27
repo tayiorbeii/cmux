@@ -3801,12 +3801,15 @@ class GhosttyApp {
                     let body = actionBody
                     let surfaceId = tabManager.focusedSurfaceId(for: tabId)
                     self.markRecentDesktopNotification(tabId: tabId, surfaceId: surfaceId)
+                    let cooldownKey = "osc777:\(tabId.uuidString):\(command)"
                     TerminalNotificationStore.shared.addNotification(
                         tabId: tabId,
                         surfaceId: surfaceId,
                         title: command,
                         subtitle: "",
-                        body: body
+                        body: body,
+                        cooldownKey: cooldownKey,
+                        cooldownInterval: 1.0
                     )
                     return true
                 }
@@ -4089,12 +4092,15 @@ class GhosttyApp {
                 let command = actionTitle.isEmpty ? tabTitle : actionTitle
                 let body = actionBody
                 self.markRecentDesktopNotification(tabId: tabId, surfaceId: surfaceId)
+                let cooldownKey = "osc777:\(tabId.uuidString):\(command)"
                 TerminalNotificationStore.shared.addNotification(
                     tabId: tabId,
                     surfaceId: surfaceId,
                     title: command,
                     subtitle: "",
-                    body: body
+                    body: body,
+                    cooldownKey: cooldownKey,
+                    cooldownInterval: 1.0
                 )
             }
             return true
