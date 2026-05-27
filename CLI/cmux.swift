@@ -17572,7 +17572,14 @@ struct CMUXCLI {
             optionsWithValues: ["--title", "--subtitle", "--body", "--message",
                                 "--workspace", "--surface", "--body-file", "--body-max-bytes"]
         ).joined(separator: " ")
-        let rawBody = (explicitBody ?? (positionalBody.isEmpty ? "" : positionalBody))
+        // Auto-read piped stdin when no explicit body is provided
+        let stdinBody: String?
+        if explicitBody == nil && positionalBody.isEmpty {
+            stdinBody = try? notificationBodyFromStandardInput(required: false, maxBytes: maxBytes)
+        } else {
+            stdinBody = nil
+        }
+        let rawBody = (explicitBody ?? (positionalBody.isEmpty ? (stdinBody ?? "") : positionalBody))
             .trimmingCharacters(in: .whitespacesAndNewlines)
         // Fold subtitle into body since OSC 777 has no subtitle field
         let body: String
