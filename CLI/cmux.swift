@@ -23854,8 +23854,34 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
                     .first(where: { !$0.isEmpty })
                 if let notificationMessage {
+                    let signalParts = [
+                        stdinObj["event"] as? String,
+                        stdinObj["event_name"] as? String,
+                        stdinObj["notification_type"] as? String,
+                        stdinObj["reason"] as? String,
+                        nested["type"] as? String,
+                        nested["reason"] as? String
+                    ]
+                    let signal = signalParts.compactMap { $0 }.joined(separator: " ").lowercased()
+                    let lowerMsg = notificationMessage.lowercased()
+                    let combined = "\(signal) \(lowerMsg)"
+                    let subtitle: String
+                    if combined.contains("permission") || combined.contains("approve") || combined.contains("approval") {
+                        subtitle = "Permission"
+                    } else if combined.contains("error") || combined.contains("failed") || combined.contains("exception") {
+                        subtitle = "Error"
+                    } else if combined.contains("complet") || combined.contains("finish") || combined.contains("done") {
+                        subtitle = "Completed"
+                    } else if combined.contains("idle") || combined.contains("wait") || combined.contains("input") {
+                        subtitle = "Waiting"
+                    } else {
+                        subtitle = ""
+                    }
                     let sourceLabel = source.isEmpty ? "Agent" : source.prefix(1).uppercased() + source.dropFirst()
                     var terminalArgs = ["notify-terminal", "--title", String(sourceLabel)]
+                    if !subtitle.isEmpty {
+                        terminalArgs += ["--subtitle", subtitle]
+                    }
                     let body = String(notificationMessage.prefix(180))
                         .replacingOccurrences(of: "\n", with: " ")
                         .replacingOccurrences(of: "\r", with: "")
