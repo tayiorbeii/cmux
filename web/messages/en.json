@@ -732,7 +732,7 @@
       "python": "Python",
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmux passthrough",
-      "tmuxDesc": "If using tmux inside cmux, enable passthrough:",
+      "tmuxDesc": "If using tmux inside cmux, enable passthrough and wrap OSC notifications. A separate BEL (\\a) is a terminal bell, not a notification:",
       "hooksTitle": "Notification hooks",
       "hooksIntro": "<config>cmux.json</config> can define notification hooks that receive every notification policy as JSON on stdin. Each hook returns JSON on stdout. Hooks are off by default; cmux only runs them when <hooksMode>notifications.hooks</hooksMode> contains at least one enabled hook. cmux applies the returned notification text and effects, so hooks can filter banners, keep or skip sidebar history, run sounds, or stop later hooks.",
       "hooksJsonTitle": "cmux.json",

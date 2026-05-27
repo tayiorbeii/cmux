@@ -624,7 +624,7 @@
       "python": "Python",
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmuxパススルー",
-      "tmuxDesc": "cmux内でtmuxを使用する場合、パススルーを有効にしてください：",
+      "tmuxDesc": "cmux内でtmuxを使用する場合は、パススルーを有効にしてOSC通知をラップしてください。個別のBEL（\\a）は通知ではなくターミナルベルです：",
       "metaTitle": "通知",
       "hooksTitle": "通知フック",
       "hooksIntro": "<config>cmux.json</config> で通知フックを定義すると、すべての通知ポリシーを stdin の JSON として受け取れます。各フックは stdout に JSON を返します。フックは既定ではオフです。cmux は <hooksMode>notifications.hooks</hooksMode> に有効なフックが 1 つ以上ある場合にのみ実行します。cmux は返された通知テキストと効果を適用するため、バナーのフィルタ、サイドバー履歴の保持またはスキップ、サウンドの実行、後続フックの停止を制御できます。",

@@ -1896,6 +1896,8 @@ class GhosttyApp {
     private var backgroundLogSequence: UInt64 = 0
     private var appObservers: [NSObjectProtocol] = []
     private var bellAudioSound: NSSound?
+    private var recentDesktopNotificationBySurfaceKey: [String: TimeInterval] = [:]
+    private var pendingBellNotificationWorkItems: [String: DispatchWorkItem] = [:]
     private var backgroundEventCounter: UInt64 = 0
     private var defaultBackgroundUpdateScope: GhosttyDefaultBackgroundUpdateScope = .unscoped
     private var defaultBackgroundScopeSource: String = "initialize"
@@ -3404,6 +3406,65 @@ class GhosttyApp {
         return String(localized: "notification.terminalBell.body", defaultValue: "Terminal bell")
     }
 
+    private func notificationSurfaceKey(tabId: UUID, surfaceId: UUID?) -> String {
+        "\(tabId.uuidString):\(surfaceId?.uuidString ?? "workspace")"
+    }
+
+    private func markRecentDesktopNotification(tabId: UUID, surfaceId: UUID?) {
+        let now = ProcessInfo.processInfo.systemUptime
+        recentDesktopNotificationBySurfaceKey[notificationSurfaceKey(tabId: tabId, surfaceId: surfaceId)] = now
+        recentDesktopNotificationBySurfaceKey = recentDesktopNotificationBySurfaceKey.filter { now - $0.value < 5.0 }
+        cancelPendingBellNotifications(tabId: tabId, surfaceId: surfaceId)
+    }
+
+    private func cancelPendingBellNotifications(tabId: UUID, surfaceId: UUID?) {
+        let keys = [
+            notificationSurfaceKey(tabId: tabId, surfaceId: surfaceId),
+            notificationSurfaceKey(tabId: tabId, surfaceId: nil),
+        ]
+        for key in keys {
+            pendingBellNotificationWorkItems.removeValue(forKey: key)?.cancel()
+        }
+    }
+
+    private func shouldSuppressBellAfterDesktopNotification(tabId: UUID, surfaceId: UUID?) -> Bool {
+        let now = ProcessInfo.processInfo.systemUptime
+        let keys = [
+            notificationSurfaceKey(tabId: tabId, surfaceId: surfaceId),
+            notificationSurfaceKey(tabId: tabId, surfaceId: nil),
+        ]
+        return keys.contains { key in
+            guard let timestamp = recentDesktopNotificationBySurfaceKey[key] else { return false }
+            return now - timestamp < 0.75
+        }
+    }
+
+    private func scheduleTerminalBellNotification(tabId: UUID, surfaceId: UUID?, tabTitle: String) {
+        let key = notificationSurfaceKey(tabId: tabId, surfaceId: surfaceId)
+        pendingBellNotificationWorkItems.removeValue(forKey: key)?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.pendingBellNotificationWorkItems.removeValue(forKey: key)
+                if self.shouldSuppressBellAfterDesktopNotification(tabId: tabId, surfaceId: surfaceId) {
+                    return
+                }
+                self.ringBell()
+                TerminalNotificationStore.shared.addNotification(
+                    tabId: tabId,
+                    surfaceId: surfaceId,
+                    title: tabTitle,
+                    subtitle: "",
+                    body: self.terminalBellNotificationBody(tabTitle: tabTitle),
+                    cooldownKey: "bell:\(tabId.uuidString)",
+                    cooldownInterval: 3.0
+                )
+            }
+        }
+        pendingBellNotificationWorkItems[key] = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: workItem)
+    }
+
     private func applyDefaultBackground(
         color: NSColor,
         opacity: Double,
@@ -3739,6 +3800,7 @@ class GhosttyApp {
                     let command = actionTitle.isEmpty ? tabTitle : actionTitle
                     let body = actionBody
                     let surfaceId = tabManager.focusedSurfaceId(for: tabId)
+                    self.markRecentDesktopNotification(tabId: tabId, surfaceId: surfaceId)
                     TerminalNotificationStore.shared.addNotification(
                         tabId: tabId,
                         surfaceId: surfaceId,
@@ -3752,7 +3814,6 @@ class GhosttyApp {
 
             if action.tag == GHOSTTY_ACTION_RING_BELL {
                 performOnMain {
-                    self.ringBell()
                     // Also create a cmux native notification for bell events
                     guard let tabManager = AppDelegate.shared?.tabManager,
                           let tabId = tabManager.selectedTabId else {
@@ -3765,15 +3826,7 @@ class GhosttyApp {
                     }
                     let tabTitle = owningManager.titleForTab(tabId) ?? "Terminal"
                     let surfaceId = tabManager.focusedSurfaceId(for: tabId)
-                    TerminalNotificationStore.shared.addNotification(
-                        tabId: tabId,
-                        surfaceId: surfaceId,
-                        title: tabTitle,
-                        subtitle: "",
-                        body: self.terminalBellNotificationBody(tabTitle: tabTitle),
-                        cooldownKey: "bell:\(tabId.uuidString)",
-                        cooldownInterval: 3.0
-                    )
+                    self.scheduleTerminalBellNotification(tabId: tabId, surfaceId: surfaceId, tabTitle: tabTitle)
                 }
                 return true
             }
@@ -3878,7 +3931,6 @@ class GhosttyApp {
             guard let tabId = surfaceView.tabId else { return true }
             let surfaceId = surfaceView.terminalSurface?.id
             performOnMain {
-                self.ringBell()
                 // Also create a cmux native notification for bell events
                 let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? AppDelegate.shared?.tabManager
                 if ClaudeCodeIntegrationSettings.hooksEnabled(), let workspace = owningManager?.tabs.first(where: { $0.id == tabId }),
@@ -3886,15 +3938,7 @@ class GhosttyApp {
                     return
                 }
                 let tabTitle = owningManager?.titleForTab(tabId) ?? "Terminal"
-                TerminalNotificationStore.shared.addNotification(
-                    tabId: tabId,
-                    surfaceId: surfaceId,
-                    title: tabTitle,
-                    subtitle: "",
-                    body: self.terminalBellNotificationBody(tabTitle: tabTitle),
-                    cooldownKey: "bell:\(tabId.uuidString)",
-                    cooldownInterval: 3.0
-                )
+                self.scheduleTerminalBellNotification(tabId: tabId, surfaceId: surfaceId, tabTitle: tabTitle)
             }
             return true
         case GHOSTTY_ACTION_GOTO_SPLIT:
@@ -4044,6 +4088,7 @@ class GhosttyApp {
                 let tabTitle = owningManager?.titleForTab(tabId) ?? "Terminal"
                 let command = actionTitle.isEmpty ? tabTitle : actionTitle
                 let body = actionBody
+                self.markRecentDesktopNotification(tabId: tabId, surfaceId: surfaceId)
                 TerminalNotificationStore.shared.addNotification(
                     tabId: tabId,
                     surfaceId: surfaceId,

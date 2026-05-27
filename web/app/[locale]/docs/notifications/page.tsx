@@ -145,10 +145,15 @@ cmux notify --title "Claude Code" --subtitle "Waiting" --body "Agent needs input
       <DocsHeading level={3} id="osc777-title">{t("osc777Title")}</DocsHeading>
       <p>{t("osc777Desc")}</p>
       <CodeBlock lang="bash">{`printf '\\e]777;notify;My Title;Message body here\\a'`}</CodeBlock>
-      <CodeBlock title="Shell function" lang="bash">{`notify_osc777() {
+      <CodeBlock title="Shell function (tmux-aware)" lang="bash">{`notify_osc777() {
     local title="$1"
     local body="$2"
-    printf '\\e]777;notify;%s;%s\\a' "$title" "$body"
+    if [[ -n "\${TMUX:-}" ]]; then
+        # Requires: tmux set -g allow-passthrough on
+        printf '\\ePtmux;\\e\\e]777;notify;%s;%s\\a\\e\\\\' "$title" "$body"
+    else
+        printf '\\e]777;notify;%s;%s\\a' "$title" "$body"
+    fi
 }
 
 notify_osc777 "Build Complete" "All tests passed"`}</CodeBlock>
@@ -325,18 +330,26 @@ notify-after() {
 # Usage: notify-after npm run build`}</CodeBlock>
 
       <DocsHeading level={3} id="python">{t("python")}</DocsHeading>
-      <CodeBlock title="python" lang="python">{`import sys
+      <CodeBlock title="python" lang="python">{`import os
+import sys
 
 def notify(title: str, body: str):
-    """Send OSC 777 notification."""
-    sys.stdout.write(f'\\x1b]777;notify;{title};{body}\\x07')
+    """Send OSC 777 notification, wrapping for tmux passthrough when needed."""
+    osc = f'\\x1b]777;notify;{title};{body}\\x07'
+    if os.environ.get('TMUX'):
+        osc = '\\x1bPtmux;' + osc.replace('\\x1b', '\\x1b\\x1b') + '\\x1b\\\\'
+    sys.stdout.write(osc)
     sys.stdout.flush()
 
 notify("Script Complete", "Processing finished")`}</CodeBlock>
 
       <DocsHeading level={3} id="nodejs">{t("nodejs")}</DocsHeading>
       <CodeBlock title="node" lang="javascript">{`function notify(title, body) {
-  process.stdout.write(\`\\x1b]777;notify;\${title};\${body}\\x07\`);
+  let osc = "\\x1b]777;notify;" + title + ";" + body + "\\x07";
+  if (process.env.TMUX) {
+    osc = "\\x1bPtmux;" + osc.replace(/\\x1b/g, "\\x1b\\x1b") + "\\x1b\\\\";
+  }
+  process.stdout.write(osc);
 }
 
 notify('Build Done', 'webpack finished');`}</CodeBlock>
@@ -344,7 +357,8 @@ notify('Build Done', 'webpack finished');`}</CodeBlock>
       <DocsHeading level={3} id="tmux-passthrough">{t("tmuxPassthrough")}</DocsHeading>
       <p>{t("tmuxDesc")}</p>
       <CodeBlock title=".tmux.conf" lang="bash">{`set -g allow-passthrough on`}</CodeBlock>
-      <CodeBlock lang="bash">{`printf '\\ePtmux;\\e\\e]777;notify;Title;Body\\a\\e\\\\'`}</CodeBlock>
+      <CodeBlock lang="bash">{`# Do not emit a separate BEL (\\a); tmux/cmux will treat it as a terminal bell.
+printf '\\ePtmux;\\e\\e]777;notify;Title;Body\\a\\e\\\\'`}</CodeBlock>
     </>
   );
 }

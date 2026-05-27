@@ -2436,6 +2436,7 @@ struct CMUXCLI {
         }
 
         if command == "help" { print(usage()); return }
+        if command == "notify-terminal" { try runNotifyTerminal(commandArgs: commandArgs); return }
         if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
@@ -2697,6 +2698,14 @@ struct CMUXCLI {
             cliTelemetry.captureError(stage: "socket_connect", error: error)
             if Self.shouldNoopTmuxOnlySocketFailure(command: command, commandArgs: commandArgs, env: processEnv) {
                 print(Self.tmuxOnlyHookNoopOutput(command: command, commandArgs: commandArgs))
+                return
+            }
+            // When cmux notify fails to reach the socket inside tmux,
+            // fall back to terminal escape notification (OSC 777 with
+            // DCS wrapping) so notifications still work in real tmux.
+            if command == "notify",
+               processEnv["TMUX"]?.isEmpty == false {
+                try runNotifyTerminal(commandArgs: commandArgs)
                 return
             }
             throw error
@@ -3735,6 +3744,7 @@ struct CMUXCLI {
                 preferTTY: preferTTYFallback && explicitWorkspaceArg == nil
             )
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
+
         case "list-notifications":
             let response = try sendV1Command("list_notifications", client: client)
             if jsonOutput {
@@ -10590,6 +10600,26 @@ struct CMUXCLI {
               # stdin and file bodies are capped to keep socket notifications lightweight
               cmux notify --title "Error" --subtitle "test.swift" --body "Line 42: syntax error"
             """
+        case "notify-terminal":
+            return """
+            Usage: cmux notify-terminal [--title <text>] [--body <text>]
+
+            Write a terminal notification escape sequence (OSC 777) to stdout.
+            When run inside tmux, the sequence is wrapped in a DCS passthrough
+            escape so the terminal emulator (cmux/Ghostty) receives it correctly.
+
+            Semicolons in title/body are replaced with colons to avoid breaking
+            the OSC 777 field structure.
+
+            Flags:
+              --title <text>     Notification title (default: "Notification")
+              --body <text>      Notification body
+              --message <text>   Alias for --body
+
+            Example:
+              cmux notify-terminal --title "Build done" --body "All tests passed"
+              cmux notify-terminal --title "Alert" --message "Something happened"
+            """
         case "list-notifications":
             return """
             Usage: cmux list-notifications
@@ -14901,11 +14931,13 @@ struct CMUXCLI {
             tmuxShimScript: tmuxScript
         )
 
-        // terminal-notifier shim: intercepts macOS notifications and routes to cmux notify
+        // terminal-notifier shim: intercepts macOS notifications and routes to cmux.
+        // Uses notify-terminal (OSC 777 with tmux DCS wrapping) so it works in both
+        // cmux fake tmux and real tmux sessions without needing a socket connection.
         let notifierURL = root.appendingPathComponent("terminal-notifier", isDirectory: false)
         let notifierScript = """
         #!/usr/bin/env bash
-        # Intercept terminal-notifier calls and route through cmux notify.
+        # Intercept terminal-notifier calls and route through cmux notify-terminal.
         # oh-my-openagent calls: terminal-notifier -title <t> -message <m> [-activate <id>]
         TITLE="" BODY=""
         while [[ $# -gt 0 ]]; do
@@ -14915,7 +14947,7 @@ struct CMUXCLI {
             *)        shift ;;
           esac
         done
-        exec "${CMUX_OMO_CMUX_BIN:-cmux}" notify --title "${TITLE:-OpenCode}" --body "${BODY:-}"
+        exec "${CMUX_OMO_CMUX_BIN:-cmux}" notify-terminal --title "${TITLE:-OpenCode}" --body "${BODY:-}"
         """
         try writeShimIfChanged(notifierScript, to: notifierURL)
 
@@ -17507,6 +17539,42 @@ struct CMUXCLI {
         if let pid, pid > 0 { params["pid"] = pid }
         addCallerRoutingParams(&params, workspaceId: workspaceId, surfaceId: surfaceId)
         return try client.sendV2(method: "status.set_for_caller", params: params)
+    }
+
+    // MARK: - notify-terminal (OSC 777 with tmux DCS wrapping)
+
+    private func runNotifyTerminal(commandArgs: [String]) throws {
+        let title = optionValue(commandArgs, name: "--title")?.trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? "Notification"
+        let body = (optionValue(commandArgs, name: "--body") ?? optionValue(commandArgs, name: "--message") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let escapedTitle = title.replacingOccurrences(of: ";", with: ":")
+        let escapedBody = body.replacingOccurrences(of: ";", with: ":")
+        // OSC 777 notify: ESC ] 777 ; notify ; <title> ; <body> BEL
+        var oscBytes = Data()
+        oscBytes.append(0x1B) // ESC
+        oscBytes.append(contentsOf: "]777;notify;".utf8)
+        oscBytes.append(contentsOf: escapedTitle.utf8)
+        oscBytes.append(0x3B) // ;
+        oscBytes.append(contentsOf: escapedBody.utf8)
+        oscBytes.append(0x07) // BEL
+        if ProcessInfo.processInfo.environment["TMUX"]?.isEmpty == false {
+            // Wrap in tmux DCS passthrough: ESC P tmux ; <payload with ESC doubled> ESC \
+            var doubled = Data()
+            for byte in oscBytes {
+                doubled.append(byte)
+                if byte == 0x1B { doubled.append(0x1B) }
+            }
+            var wrapper = Data()
+            wrapper.append(0x1B) // ESC
+            wrapper.append(contentsOf: "Ptmux;".utf8)
+            wrapper.append(doubled)
+            wrapper.append(0x1B) // ESC
+            wrapper.append(0x5C) // \
+            FileHandle.standardOutput.write(wrapper)
+        } else {
+            FileHandle.standardOutput.write(oscBytes)
+        }
     }
 
     @discardableResult
@@ -25280,6 +25348,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           send-panel --panel <id|ref> [--workspace <id|ref>] <text>
           send-key-panel --panel <id|ref> [--workspace <id|ref>] <key>
           notify --title <text> [--subtitle <text>] [--body <text>] [--workspace <id|ref>] [--surface <id|ref>]
+          notify-terminal [--title <text>] [--body <text>]
           list-notifications
           dismiss-notification (--id <uuid> | --all-read)
           mark-notification-read (--id <uuid> | --workspace <id|ref> [--surface <id|ref>] | --all)
