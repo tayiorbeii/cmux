@@ -2703,9 +2703,23 @@ struct CMUXCLI {
             // When cmux notify fails to reach the socket inside tmux,
             // fall back to terminal escape notification (OSC 777 with
             // DCS wrapping) so notifications still work in real tmux.
+            // Resolve tmux-aware defaults for title/subtitle/body
+            // before passing to notify-terminal.
             if command == "notify",
                processEnv["TMUX"]?.isEmpty == false {
-                try runNotifyTerminal(commandArgs: commandArgs)
+                var fallbackArgs = commandArgs
+                let tmuxDefaults = tmuxNotificationDefaultsForCaller()
+                if optionValue(commandArgs, name: "--title") == nil,
+                   let title = tmuxDefaults?.title,
+                   !title.isEmpty {
+                    fallbackArgs += ["--title", title]
+                }
+                if optionValue(commandArgs, name: "--subtitle") == nil,
+                   let subtitle = tmuxDefaults?.subtitle,
+                   !subtitle.isEmpty {
+                    fallbackArgs += ["--subtitle", subtitle]
+                }
+                try runNotifyTerminal(commandArgs: fallbackArgs)
                 return
             }
             throw error
