@@ -17705,13 +17705,19 @@ struct CMUXCLI {
             .replacingOccurrences(of: "\n", with: " ")
             .replacingOccurrences(of: "\r", with: "")
             .replacingOccurrences(of: String(UnicodeScalar(0x1B)!), with: "")
+        // Truncate to Ghostty's fixed-size notification buffers.
+        // Ghostty uses title[63] and body[255] so bytes beyond those
+        // limits are silently dropped by the terminal. Truncating here
+        // avoids sending unnecessarily long escape sequences.
+        let trimmedTitle = String(escapedTitle.prefix(63))
+        let trimmedBody = String(escapedBody.prefix(255))
         // OSC 777 notify: ESC ] 777 ; notify ; <title> ; <body> BEL
         var oscBytes = Data()
         oscBytes.append(0x1B) // ESC
         oscBytes.append(contentsOf: "]777;notify;".utf8)
-        oscBytes.append(contentsOf: escapedTitle.utf8)
+        oscBytes.append(contentsOf: trimmedTitle.utf8)
         oscBytes.append(0x3B) // ;
-        oscBytes.append(contentsOf: escapedBody.utf8)
+        oscBytes.append(contentsOf: trimmedBody.utf8)
         oscBytes.append(0x07) // BEL
         if ProcessInfo.processInfo.environment["TMUX"]?.isEmpty == false {
             // Wrap in tmux DCS passthrough: ESC P tmux ; <payload with ESC doubled> ESC \
