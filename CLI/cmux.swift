@@ -2713,13 +2713,59 @@ struct CMUXCLI {
                             ?? optionValue(feedArgs, name: "--event")
                             ?? ""
                         if rawEvent == "Notification" || rawEvent == "notification" {
-                            let message = (stdinObj["message"] as? String)
-                                ?? (stdinObj["body"] as? String)
-                                ?? (stdinObj["content"] as? String)
-                                ?? ""
-                            if !message.isEmpty {
+                            // Try nested notification/data objects like the socket path does
+                            let nested = (stdinObj["notification"] as? [String: Any])
+                                ?? (stdinObj["data"] as? [String: Any])
+                                ?? [:]
+                            let messageCandidates = [
+                                stdinObj["message"] as? String,
+                                stdinObj["body"] as? String,
+                                stdinObj["text"] as? String,
+                                stdinObj["prompt"] as? String,
+                                stdinObj["error"] as? String,
+                                stdinObj["description"] as? String,
+                                stdinObj["content"] as? String,
+                                nested["message"] as? String,
+                                nested["body"] as? String,
+                                nested["text"] as? String
+                            ]
+                            let message = messageCandidates.compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                                .first(where: { !$0.isEmpty })
+                            if let message {
+                                // Extract a subtitle from event type classification
+                                let signalParts = [
+                                    stdinObj["event"] as? String,
+                                    stdinObj["event_name"] as? String,
+                                    stdinObj["notification_type"] as? String,
+                                    stdinObj["reason"] as? String,
+                                    nested["type"] as? String,
+                                    nested["reason"] as? String
+                                ]
+                                let signal = signalParts.compactMap { $0 }.joined(separator: " ").lowercased()
+                                let lowerMsg = message.lowercased()
+                                let combined = "\(signal) \(lowerMsg)"
+                                let subtitle: String
+                                if combined.contains("permission") || combined.contains("approve") || combined.contains("approval") {
+                                    subtitle = "Permission"
+                                } else if combined.contains("error") || combined.contains("failed") || combined.contains("exception") {
+                                    subtitle = "Error"
+                                } else if combined.contains("complet") || combined.contains("finish") || combined.contains("done") {
+                                    subtitle = "Completed"
+                                } else if combined.contains("idle") || combined.contains("wait") || combined.contains("input") {
+                                    subtitle = "Waiting"
+                                } else {
+                                    subtitle = ""
+                                }
                                 let sourceLabel = source.isEmpty ? "Agent" : String(source.prefix(1).uppercased() + source.dropFirst())
-                                try runNotifyTerminal(commandArgs: ["notify-terminal", "--title", sourceLabel, "--body", message])
+                                var terminalArgs = ["notify-terminal", "--title", sourceLabel]
+                                if !subtitle.isEmpty {
+                                    terminalArgs += ["--subtitle", subtitle]
+                                }
+                                let body = String(message.prefix(180))
+                                    .replacingOccurrences(of: "\n", with: " ")
+                                    .replacingOccurrences(of: "\r", with: "")
+                                terminalArgs += ["--body", body]
+                                try runNotifyTerminal(commandArgs: terminalArgs)
                                 print("{}")
                                 return
                             }
