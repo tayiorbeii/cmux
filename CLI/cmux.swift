@@ -10726,7 +10726,7 @@ struct CMUXCLI {
               --body <text|->         Notification body (- reads stdin)
               --message <text|->      Alias for --body
               --body-file <path|->    Read body from a file or stdin
-              --body-max-bytes <n>    Max stdin/file body bytes (default: 16384)
+              --body-max-bytes <n>    Max stdin/file body bytes (1..65536, default: 16384)
 
             Example:
               cmux notify-terminal --title "Build done" --body "All tests passed"
