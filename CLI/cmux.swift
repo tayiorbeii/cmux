@@ -17661,7 +17661,8 @@ struct CMUXCLI {
         let title = optionValue(commandArgs, name: "--title")?.trimmingCharacters(in: .whitespacesAndNewlines)
             ?? "Notification"
         let subtitle = optionValue(commandArgs, name: "--subtitle")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let maxBytes = max(1, Int(optionValue(commandArgs, name: "--body-max-bytes") ?? "") ?? 16384)
+        let rawMaxBytes = Int(optionValue(commandArgs, name: "--body-max-bytes") ?? "") ?? 16384
+        let maxBytes = max(1, min(rawMaxBytes, Self.notificationBodyAllowedMaxBytes))
         var explicitBody: String?
         if let rawBody = optionValue(commandArgs, name: "--body") ?? optionValue(commandArgs, name: "--message") {
             explicitBody = rawBody.trimmingCharacters(in: .whitespacesAndNewlines)
