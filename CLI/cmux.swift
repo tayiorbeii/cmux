@@ -2812,6 +2812,30 @@ struct CMUXCLI {
                 try runNotifyTerminal(commandArgs: fallbackArgs)
                 return
             }
+            // When claude-hook notification fails to reach the socket
+            // inside tmux, extract the notification summary and emit
+            // a terminal escape (OSC 777 with DCS wrapping) so Claude
+            // notifications still work in real tmux sessions.
+            if command == "claude-hook",
+               commandArgs.first?.lowercased() == "notification" || commandArgs.first?.lowercased() == "notify",
+               processEnv["TMUX"]?.isEmpty == false {
+                let hookArgs = Array(commandArgs.dropFirst())
+                let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                let parsedInput = parseClaudeHookInput(rawInput: rawInput)
+                let summary = summarizeClaudeHookNotification(parsedInput: parsedInput)
+                let title = String(
+                    localized: "cli.claude-hook.notification.title",
+                    defaultValue: "Claude Code"
+                )
+                var terminalArgs = ["notify-terminal", "--title", title]
+                if !summary.subtitle.isEmpty {
+                    terminalArgs += ["--subtitle", summary.subtitle]
+                }
+                terminalArgs += ["--body", summary.body]
+                try runNotifyTerminal(commandArgs: terminalArgs)
+                print("OK")
+                return
+            }
             throw error
         }
         defer { client.close() }
@@ -17274,73 +17298,96 @@ struct CMUXCLI {
             telemetry.breadcrumb("claude-hook.notification")
             var summary = summarizeClaudeHookNotification(parsedInput: parsedInput)
 
-            let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-            let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
-                preferred: mappedSession?.workspaceId,
-                fallback: workspaceArg,
-                client: client
-            )
-            sendClaudeFeedTelemetry(workspaceId: workspaceId)
-            guard shouldApplyClaudeHookVisibleMutation(
-                sessionStore: sessionStore,
-                parsedInput: parsedInput,
-                workspaceId: workspaceId,
-                telemetry: telemetry
-            ) else {
-                telemetry.breadcrumb("claude-hook.notification.stale")
-                print("OK")
-                return
-            }
-            if let mappedSession,
-               let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
-               summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
-                summary = (subtitle: mappedSession.lastSubtitle ?? summary.subtitle, body: savedBody)
-            }
+            // Resolve notification content before attempting socket path.
+            // If the socket is unavailable inside tmux, fall back to
+            // terminal escape (OSC 777 with DCS wrapping) so Claude
+            // notifications still work in real tmux sessions.
+            let processEnv = ProcessInfo.processInfo.environment
+            let inTmux = processEnv["TMUX"]?.isEmpty == false
 
-            let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
-                preferred: mappedSession?.surfaceId,
-                fallback: surfaceArg,
-                workspaceId: workspaceId,
-                client: client
-            )
+            do {
+                let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+                let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
+                    preferred: mappedSession?.workspaceId,
+                    fallback: workspaceArg,
+                    client: client
+                )
+                sendClaudeFeedTelemetry(workspaceId: workspaceId)
+                guard shouldApplyClaudeHookVisibleMutation(
+                    sessionStore: sessionStore,
+                    parsedInput: parsedInput,
+                    workspaceId: workspaceId,
+                    telemetry: telemetry
+                ) else {
+                    telemetry.breadcrumb("claude-hook.notification.stale")
+                    print("OK")
+                    return
+                }
+                if let mappedSession,
+                   let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
+                   summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
+                    summary = (subtitle: mappedSession.lastSubtitle ?? summary.subtitle, body: savedBody)
+                }
 
-            let title = String(
-                localized: "cli.claude-hook.notification.title",
-                defaultValue: "Claude Code"
-            )
+                let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
+                    preferred: mappedSession?.surfaceId,
+                    fallback: surfaceArg,
+                    workspaceId: workspaceId,
+                    client: client
+                )
 
-            if let sessionId = parsedInput.sessionId {
-                try? sessionStore.upsert(
-                    sessionId: sessionId,
+                let title = String(
+                    localized: "cli.claude-hook.notification.title",
+                    defaultValue: "Claude Code"
+                )
+
+                if let sessionId = parsedInput.sessionId {
+                    try? sessionStore.upsert(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        cwd: parsedInput.cwd,
+                        transcriptPath: parsedInput.transcriptPath,
+                        lastSubtitle: summary.subtitle,
+                        lastBody: summary.body
+                    )
+                }
+
+                _ = try? setClaudeStatus(
+                    client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    cwd: parsedInput.cwd,
-                    transcriptPath: parsedInput.transcriptPath,
-                    lastSubtitle: summary.subtitle,
-                    lastBody: summary.body
+                    value: "Needs input",
+                    icon: "bell.fill",
+                    color: "#4C8DFF",
+                    preferTTY: mappedSession == nil && hookWsFlag == nil && hookSurfaceFlag == nil
                 )
+                let response = try sendNotificationForCaller(
+                    client: client,
+                    title: title,
+                    subtitle: summary.subtitle,
+                    body: summary.body,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    preferTTY: mappedSession == nil && hookWsFlag == nil && hookSurfaceFlag == nil
+                )
+                _ = response
+                print("OK")
+            } catch {
+                // Socket path failed — fall back to terminal escape in tmux.
+                guard inTmux else { throw error }
+                let title = String(
+                    localized: "cli.claude-hook.notification.title",
+                    defaultValue: "Claude Code"
+                )
+                var terminalArgs = ["notify-terminal", "--title", title]
+                if !summary.subtitle.isEmpty {
+                    terminalArgs += ["--subtitle", summary.subtitle]
+                }
+                terminalArgs += ["--body", summary.body]
+                try runNotifyTerminal(commandArgs: terminalArgs)
+                print("OK")
             }
-
-            _ = try? setClaudeStatus(
-                client: client,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                value: "Needs input",
-                icon: "bell.fill",
-                color: "#4C8DFF",
-                preferTTY: mappedSession == nil && hookWsFlag == nil && hookSurfaceFlag == nil
-            )
-            let response = try sendNotificationForCaller(
-                client: client,
-                title: title,
-                subtitle: summary.subtitle,
-                body: summary.body,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                preferTTY: mappedSession == nil && hookWsFlag == nil && hookSurfaceFlag == nil
-            )
-            _ = response
-            print("OK")
 
         case "session-end":
             telemetry.breadcrumb("claude-hook.session-end")
