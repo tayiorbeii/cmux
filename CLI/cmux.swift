@@ -2719,6 +2719,20 @@ struct CMUXCLI {
                    !subtitle.isEmpty {
                     fallbackArgs += ["--subtitle", subtitle]
                 }
+                // If no body content at all, fall back to tmux command/directory context
+                let hasExplicitBody = optionValue(commandArgs, name: "--body") != nil
+                    || optionValue(commandArgs, name: "--message") != nil
+                    || optionValue(commandArgs, name: "--body-file") != nil
+                    || !positionalArgumentsExcludingOptions(
+                        commandArgs,
+                        optionsWithValues: ["--title", "--subtitle", "--body", "--message",
+                                            "--workspace", "--surface", "--body-file", "--body-max-bytes"]
+                    ).isEmpty
+                if !hasExplicitBody,
+                   let body = tmuxDefaults?.body,
+                   !body.isEmpty {
+                    fallbackArgs += ["--body", body]
+                }
                 try runNotifyTerminal(commandArgs: fallbackArgs)
                 return
             }
