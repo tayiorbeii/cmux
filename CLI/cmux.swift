@@ -10602,23 +10602,26 @@ struct CMUXCLI {
             """
         case "notify-terminal":
             return """
-            Usage: cmux notify-terminal [--title <text>] [--body <text>]
+            Usage: cmux notify-terminal [--title <text>] [--subtitle <text>] [--body <text>] [body text]
 
             Write a terminal notification escape sequence (OSC 777) to stdout.
             When run inside tmux, the sequence is wrapped in a DCS passthrough
             escape so the terminal emulator (cmux/Ghostty) receives it correctly.
 
             Semicolons in title/body are replaced with colons to avoid breaking
-            the OSC 777 field structure.
+            the OSC 777 field structure. Subtitle is folded into the body since
+            OSC 777 has no subtitle field.
 
             Flags:
               --title <text>     Notification title (default: "Notification")
+              --subtitle <text>  Subtitle (folded into body)
               --body <text>      Notification body
               --message <text>   Alias for --body
 
             Example:
               cmux notify-terminal --title "Build done" --body "All tests passed"
               cmux notify-terminal --title "Alert" --message "Something happened"
+              cmux notify-terminal --title "Build" --subtitle "main.swift" --body "Error on line 42"
             """
         case "list-notifications":
             return """
@@ -17546,8 +17549,23 @@ struct CMUXCLI {
     private func runNotifyTerminal(commandArgs: [String]) throws {
         let title = optionValue(commandArgs, name: "--title")?.trimmingCharacters(in: .whitespacesAndNewlines)
             ?? "Notification"
-        let body = (optionValue(commandArgs, name: "--body") ?? optionValue(commandArgs, name: "--message") ?? "")
+        let subtitle = optionValue(commandArgs, name: "--subtitle")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let explicitBody = optionValue(commandArgs, name: "--body") ?? optionValue(commandArgs, name: "--message")
+        let positionalBody = positionalArgumentsExcludingOptions(
+            commandArgs,
+            optionsWithValues: ["--title", "--subtitle", "--body", "--message"]
+        ).joined(separator: " ")
+        let rawBody = (explicitBody ?? (positionalBody.isEmpty ? "" : positionalBody))
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        // Fold subtitle into body since OSC 777 has no subtitle field
+        let body: String
+        if let subtitle, !subtitle.isEmpty, !rawBody.isEmpty {
+            body = "\(subtitle): \(rawBody)"
+        } else if let subtitle, !subtitle.isEmpty {
+            body = subtitle
+        } else {
+            body = rawBody
+        }
         let escapedTitle = title.replacingOccurrences(of: ";", with: ":")
         let escapedBody = body.replacingOccurrences(of: ";", with: ":")
         // OSC 777 notify: ESC ] 777 ; notify ; <title> ; <body> BEL
@@ -25348,7 +25366,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           send-panel --panel <id|ref> [--workspace <id|ref>] <text>
           send-key-panel --panel <id|ref> [--workspace <id|ref>] <key>
           notify --title <text> [--subtitle <text>] [--body <text>] [--workspace <id|ref>] [--surface <id|ref>]
-          notify-terminal [--title <text>] [--body <text>]
+          notify-terminal [--title <text>] [--subtitle <text>] [--body <text>]
           list-notifications
           dismiss-notification (--id <uuid> | --all-read)
           mark-notification-read (--id <uuid> | --workspace <id|ref> [--surface <id|ref>] | --all)
