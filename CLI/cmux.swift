@@ -10581,6 +10581,10 @@ struct CMUXCLI {
             cmux includes tmux pane metadata so the notification is routed to
             the originating pane instead of only the focused cmux surface.
 
+            When the cmux socket is unavailable inside tmux, cmux notify
+            automatically falls back to terminal escape notification (OSC 777
+            with DCS wrapping), so notifications still work in real tmux.
+
             Flags:
               --title <text>         Notification title (default: "Notification")
               --subtitle <text>      Notification subtitle
