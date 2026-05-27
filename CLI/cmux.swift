@@ -2736,6 +2736,7 @@ struct CMUXCLI {
             // before passing to notify-terminal.
             if command == "notify",
                processEnv["TMUX"]?.isEmpty == false {
+                // commandArgs already excludes the command name, pass directly
                 var fallbackArgs = commandArgs
                 let tmuxDefaults = tmuxNotificationDefaultsForCaller()
                 if optionValue(commandArgs, name: "--title") == nil,
