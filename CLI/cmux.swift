@@ -17557,7 +17557,8 @@ struct CMUXCLI {
         let explicitBody = optionValue(commandArgs, name: "--body") ?? optionValue(commandArgs, name: "--message")
         let positionalBody = positionalArgumentsExcludingOptions(
             commandArgs,
-            optionsWithValues: ["--title", "--subtitle", "--body", "--message"]
+            optionsWithValues: ["--title", "--subtitle", "--body", "--message",
+                                "--workspace", "--surface", "--body-file", "--body-max-bytes"]
         ).joined(separator: " ")
         let rawBody = (explicitBody ?? (positionalBody.isEmpty ? "" : positionalBody))
             .trimmingCharacters(in: .whitespacesAndNewlines)
