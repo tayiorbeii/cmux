@@ -157,6 +157,12 @@ cmux notify --title "Claude Code" --subtitle "Waiting" --body "Agent needs input
 }
 
 notify_osc777 "Build Complete" "All tests passed"`}</CodeBlock>
+      <CodeBlock title="cmux CLI (recommended, tmux-aware)" lang="bash">{`# cmux notify-terminal handles tmux DCS wrapping automatically:
+cmux notify-terminal --title "Build Complete" --body "All tests passed"
+
+# Inside tmux, this emits the DCS passthrough wrapper automatically.
+# Outside tmux, it emits a plain OSC 777 sequence.
+# No socket connection required.`}</CodeBlock>
 
       <DocsHeading level={3} id="osc99-title">{t("osc99Title")}</DocsHeading>
       <p>{t("osc99Desc")}</p>
@@ -359,6 +365,9 @@ notify('Build Done', 'webpack finished');`}</CodeBlock>
       <CodeBlock title=".tmux.conf" lang="bash">{`set -g allow-passthrough on`}</CodeBlock>
       <CodeBlock lang="bash">{`# Do not emit a separate BEL (\\a); tmux/cmux will treat it as a terminal bell.
 printf '\\ePtmux;\\e\\e]777;notify;Title;Body\\a\\e\\\\'`}</CodeBlock>
+      <CodeBlock title="Recommended: use cmux notify-terminal" lang="bash">{`# cmux notify-terminal handles DCS wrapping and semicolon escaping automatically.
+# Works in both real tmux and cmux fake tmux.
+cmux notify-terminal --title "Title" --body "Body"`}</CodeBlock>
     </>
   );
 }
