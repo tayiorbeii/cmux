@@ -2697,6 +2697,35 @@ struct CMUXCLI {
             cliTelemetry.breadcrumb("socket.connect.failure", data: ["path": resolvedSocketPath])
             cliTelemetry.captureError(stage: "socket_connect", error: error)
             if Self.shouldNoopTmuxOnlySocketFailure(command: command, commandArgs: commandArgs, env: processEnv) {
+                // When hooks feed encounters a Notification event inside real tmux
+                // without cmux, extract the notification and emit a terminal escape
+                // so the user still sees the notification. Other hook events no-op.
+                if command == "hooks",
+                   commandArgs.first?.lowercased() == "feed",
+                   processEnv["TMUX"]?.isEmpty == false {
+                    let feedArgs = Array(commandArgs.dropFirst())
+                    let source = optionValue(feedArgs, name: "--source") ?? ""
+                    let stdinData = FileHandle.standardInput.readDataToEndOfFile()
+                    if !stdinData.isEmpty,
+                       let stdinObj = try? JSONSerialization.jsonObject(with: stdinData) as? [String: Any] {
+                        let rawEvent = (stdinObj["hook_event_name"] as? String)
+                            ?? (stdinObj["event"] as? String)
+                            ?? optionValue(feedArgs, name: "--event")
+                            ?? ""
+                        if rawEvent == "Notification" || rawEvent == "notification" {
+                            let message = (stdinObj["message"] as? String)
+                                ?? (stdinObj["body"] as? String)
+                                ?? (stdinObj["content"] as? String)
+                                ?? ""
+                            if !message.isEmpty {
+                                let sourceLabel = source.isEmpty ? "Agent" : String(source.prefix(1).uppercased() + source.dropFirst())
+                                try runNotifyTerminal(commandArgs: ["notify-terminal", "--title", sourceLabel, "--body", message])
+                                print("{}")
+                                return
+                            }
+                        }
+                    }
+                }
                 print(Self.tmuxOnlyHookNoopOutput(command: command, commandArgs: commandArgs))
                 return
             }
@@ -23747,6 +23776,22 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let sessionId = (stdinObj["session_id"] as? String) ?? UUID().uuidString
         if shouldNoopTmuxOnlyHook(env: env, args: commandArgs, client: client),
            feedWorkspaceId(rawObject: stdinObj, fallback: nil) == nil {
+            // When running inside real tmux without cmux, Notification events
+            // can be forwarded as terminal escape notifications so the user
+            // still sees them. Other events are silently no-op'd.
+            if rawEvent == "Notification" || rawEvent == "notification" {
+                let notificationMessage = (stdinObj["message"] as? String)
+                    ?? (stdinObj["body"] as? String)
+                    ?? (stdinObj["content"] as? String)
+                    ?? ""
+                if !notificationMessage.isEmpty {
+                    let sourceLabel = source.isEmpty ? "Agent" : source.prefix(1).uppercased() + source.dropFirst()
+                    var terminalArgs = ["notify-terminal", "--title", String(sourceLabel), "--body", notificationMessage]
+                    try runNotifyTerminal(commandArgs: terminalArgs)
+                    print("{}")
+                    return
+                }
+            }
             print("{}")
             return
         }
