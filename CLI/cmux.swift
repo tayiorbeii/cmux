@@ -17647,8 +17647,14 @@ struct CMUXCLI {
         } else {
             body = rawBody
         }
-        let escapedTitle = title.replacingOccurrences(of: ";", with: ":")
-        let escapedBody = body.replacingOccurrences(of: ";", with: ":")
+        let escapedTitle = title
+            .replacingOccurrences(of: ";", with: ":")
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: "")
+        let escapedBody = body
+            .replacingOccurrences(of: ";", with: ":")
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: "")
         // OSC 777 notify: ESC ] 777 ; notify ; <title> ; <body> BEL
         var oscBytes = Data()
         oscBytes.append(0x1B) // ESC
