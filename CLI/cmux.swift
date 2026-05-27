@@ -17698,10 +17698,12 @@ struct CMUXCLI {
             .replacingOccurrences(of: ";", with: ":")
             .replacingOccurrences(of: "\n", with: " ")
             .replacingOccurrences(of: "\r", with: "")
+            .replacingOccurrences(of: String(UnicodeScalar(0x1B)!), with: "")
         let escapedBody = body
             .replacingOccurrences(of: ";", with: ":")
             .replacingOccurrences(of: "\n", with: " ")
             .replacingOccurrences(of: "\r", with: "")
+            .replacingOccurrences(of: String(UnicodeScalar(0x1B)!), with: "")
         // OSC 777 notify: ESC ] 777 ; notify ; <title> ; <body> BEL
         var oscBytes = Data()
         oscBytes.append(0x1B) // ESC
