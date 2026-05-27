@@ -10606,7 +10606,7 @@ struct CMUXCLI {
             """
         case "notify-terminal":
             return """
-            Usage: cmux notify-terminal [--title <text>] [--subtitle <text>] [--body <text>] [body text]
+            Usage: cmux notify-terminal [--title <text>] [--subtitle <text>] [--body <text|->] [--body-file <path|->] [body text]
 
             Write a terminal notification escape sequence (OSC 777) to stdout.
             When run inside tmux, the sequence is wrapped in a DCS passthrough
@@ -10617,14 +10617,17 @@ struct CMUXCLI {
             OSC 777 has no subtitle field.
 
             Flags:
-              --title <text>     Notification title (default: "Notification")
-              --subtitle <text>  Subtitle (folded into body)
-              --body <text>      Notification body
-              --message <text>   Alias for --body
+              --title <text>          Notification title (default: "Notification")
+              --subtitle <text>       Subtitle (folded into body)
+              --body <text|->         Notification body (- reads stdin)
+              --message <text|->      Alias for --body
+              --body-file <path|->    Read body from a file or stdin
+              --body-max-bytes <n>    Max stdin/file body bytes (default: 16384)
 
             Example:
               cmux notify-terminal --title "Build done" --body "All tests passed"
               cmux notify-terminal --title "Alert" --message "Something happened"
+              make 2>&1 | cmux notify-terminal --title "Build" --body -
               cmux notify-terminal --title "Build" --subtitle "main.swift" --body "Error on line 42"
             """
         case "list-notifications":
@@ -17554,7 +17557,16 @@ struct CMUXCLI {
         let title = optionValue(commandArgs, name: "--title")?.trimmingCharacters(in: .whitespacesAndNewlines)
             ?? "Notification"
         let subtitle = optionValue(commandArgs, name: "--subtitle")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let explicitBody = optionValue(commandArgs, name: "--body") ?? optionValue(commandArgs, name: "--message")
+        let maxBytes = Int(optionValue(commandArgs, name: "--body-max-bytes") ?? "") ?? 16384
+        var explicitBody: String?
+        if let rawBody = optionValue(commandArgs, name: "--body") ?? optionValue(commandArgs, name: "--message") {
+            explicitBody = rawBody.trimmingCharacters(in: .whitespacesAndNewlines)
+            if explicitBody == "-" {
+                explicitBody = try notificationBodyFromStandardInput(required: true, maxBytes: maxBytes)
+            }
+        } else if let bodyFile = optionValue(commandArgs, name: "--body-file") {
+            explicitBody = try notificationBodyFromFileArgument(bodyFile, maxBytes: maxBytes)
+        }
         let positionalBody = positionalArgumentsExcludingOptions(
             commandArgs,
             optionsWithValues: ["--title", "--subtitle", "--body", "--message",
@@ -25371,7 +25383,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           send-panel --panel <id|ref> [--workspace <id|ref>] <text>
           send-key-panel --panel <id|ref> [--workspace <id|ref>] <key>
           notify --title <text> [--subtitle <text>] [--body <text>] [--workspace <id|ref>] [--surface <id|ref>]
-          notify-terminal [--title <text>] [--subtitle <text>] [--body <text>]
+          notify-terminal [--title <text>] [--subtitle <text>] [--body <text|->] [--body-file <path|->]
           list-notifications
           dismiss-notification (--id <uuid> | --all-read)
           mark-notification-read (--id <uuid> | --workspace <id|ref> [--surface <id|ref>] | --all)
