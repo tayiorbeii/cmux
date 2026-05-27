@@ -23836,13 +23836,30 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             // can be forwarded as terminal escape notifications so the user
             // still sees them. Other events are silently no-op'd.
             if rawEvent == "Notification" || rawEvent == "notification" {
-                let notificationMessage = (stdinObj["message"] as? String)
-                    ?? (stdinObj["body"] as? String)
-                    ?? (stdinObj["content"] as? String)
-                    ?? ""
-                if !notificationMessage.isEmpty {
+                let nested = (stdinObj["notification"] as? [String: Any])
+                    ?? (stdinObj["data"] as? [String: Any])
+                    ?? [:]
+                let messageCandidates = [
+                    stdinObj["message"] as? String,
+                    stdinObj["body"] as? String,
+                    stdinObj["text"] as? String,
+                    stdinObj["error"] as? String,
+                    stdinObj["description"] as? String,
+                    stdinObj["content"] as? String,
+                    nested["message"] as? String,
+                    nested["body"] as? String,
+                    nested["text"] as? String
+                ]
+                let notificationMessage = messageCandidates
+                    .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .first(where: { !$0.isEmpty })
+                if let notificationMessage {
                     let sourceLabel = source.isEmpty ? "Agent" : source.prefix(1).uppercased() + source.dropFirst()
-                    var terminalArgs = ["notify-terminal", "--title", String(sourceLabel), "--body", notificationMessage]
+                    var terminalArgs = ["notify-terminal", "--title", String(sourceLabel)]
+                    let body = String(notificationMessage.prefix(180))
+                        .replacingOccurrences(of: "\n", with: " ")
+                        .replacingOccurrences(of: "\r", with: "")
+                    terminalArgs += ["--body", body]
                     try runNotifyTerminal(commandArgs: terminalArgs)
                     print("{}")
                     return
