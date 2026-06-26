@@ -77,6 +77,7 @@ tend to conflict together during rebases.
   - `eb34bcdd6` (Harden cmux theme override writes)
   - `04ec69173` (Apply highlighted cmux theme on Enter)
   - `4265d3428` (Apply cmux theme from picker search)
+  - `176bd550f` (Add ctrl navigation to cmux theme picker)
 - Files:
   - `build.zig`
   - `src/cli/list_themes.zig`
@@ -87,6 +88,7 @@ tend to conflict together during rebases.
   - Keeps the preview UI readable in light mode, matches upstream picker startup behavior, and hardens writes to the cmux-managed theme override file.
   - Restores Enter as the cmux apply action by writing the currently highlighted theme before the picker exits.
   - Applies the highlighted search result when Enter is pressed from search mode in cmux-managed picker sessions.
+  - Supports Ctrl-N and Ctrl-P as one-row down/up navigation in cmux-managed picker sessions.
 
 ### 5) Color scheme mode 2031 reporting
 
@@ -102,11 +104,15 @@ tend to conflict together during rebases.
 
 ### 6) Keyboard copy mode selection C API
 
-- Commit: `0b231db94` (Re-export cmux selection APIs removed from upstream)
+- Commits:
+  - `0b231db94` (Re-export cmux selection APIs removed from upstream)
+  - `46bd03a7` (surface: add absolute screen row text read)
+  - `edad0cfec` (surface: format screen row clipboard text)
+  - `e81fb65f` (surface: bound screen clipboard text formatting)
 - Files:
   - `include/ghostty.h`
-  - `src/Surface.zig`
   - `src/apprt/embedded.zig`
+  - `src/Surface.zig`
 - Summary:
   - Restores `ghostty_surface_select_cursor_cell` and `ghostty_surface_clear_selection`.
   - Keeps cmux keyboard copy mode working against the refreshed Ghostty base after upstream removed those exports.
@@ -189,7 +195,7 @@ tend to conflict together during rebases.
     `GenericRenderer(Metal).rebuildRow` no longer assumes terminal cells and
     shaped glyph cells have one-to-one cardinality.
   - The first commit intentionally preserves the panic so cmux can keep the
-    required failing-test-then-fix history for issue #3369.
+    required failing-test-then-fix history for https://github.com/manaflow-ai/cmux/issues/3369.
 
 ### 12) Copy-mode set_selection_range C API
 
@@ -317,6 +323,13 @@ These files change frequently upstream; be careful when rebasing the fork:
   - The initial `focused` plumbing has to stay aligned across the C config, embedded runtime surface,
     and macOS wrapper. If upstream refactors surface creation or post-create focus sync, re-check that
     background panes can start unfocused without synthesizing a focus-loss transition during creation.
+
+- `src/Surface.zig` (modifier tracking)
+  - `modsChanged` and the key callback's link-highlight gate must compare binding mods against
+    binding mods (stored mouse mods are binding-only). cmux sends sided modifier bits on key
+    events for `macos-option-as-alt = left|right`; comparing raw mods re-dirties the screen and
+    re-runs the link refresh on every event while a sided or lock modifier is held. If upstream
+    refactors modifier tracking, keep the binding-normalized comparison.
 
 - `src/termio/stream_handler.zig`
   - Keep DECSET 1004 enablement side-effect free. xterm-compatible focus reporting should only emit
