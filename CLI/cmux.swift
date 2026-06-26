@@ -3513,58 +3513,13 @@ struct CMUXCLI {
                             ?? optionValue(feedArgs, name: "--event")
                             ?? ""
                         if rawEvent == "Notification" || rawEvent == "notification" {
-                            // Try nested notification/data objects like the socket path does
-                            let nested = (stdinObj["notification"] as? [String: Any])
-                                ?? (stdinObj["data"] as? [String: Any])
-                                ?? [:]
-                            let messageCandidates = [
-                                stdinObj["message"] as? String,
-                                stdinObj["body"] as? String,
-                                stdinObj["text"] as? String,
-                                stdinObj["prompt"] as? String,
-                                stdinObj["error"] as? String,
-                                stdinObj["description"] as? String,
-                                stdinObj["content"] as? String,
-                                nested["message"] as? String,
-                                nested["body"] as? String,
-                                nested["text"] as? String
-                            ]
-                            let message = messageCandidates.compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-                                .first(where: { !$0.isEmpty })
-                            if let message {
-                                // Extract a subtitle from event type classification
-                                let signalParts = [
-                                    stdinObj["event"] as? String,
-                                    stdinObj["event_name"] as? String,
-                                    stdinObj["notification_type"] as? String,
-                                    stdinObj["reason"] as? String,
-                                    nested["type"] as? String,
-                                    nested["reason"] as? String
-                                ]
-                                let signal = signalParts.compactMap { $0 }.joined(separator: " ").lowercased()
-                                let lowerMsg = message.lowercased()
-                                let combined = "\(signal) \(lowerMsg)"
-                                let subtitle: String
-                                if combined.contains("permission") || combined.contains("approve") || combined.contains("approval") {
-                                    subtitle = "Permission"
-                                } else if combined.contains("error") || combined.contains("failed") || combined.contains("exception") {
-                                    subtitle = "Error"
-                                } else if combined.contains("complet") || combined.contains("finish") || combined.contains("done") {
-                                    subtitle = "Completed"
-                                } else if combined.contains("idle") || combined.contains("wait") || combined.contains("input") {
-                                    subtitle = "Waiting"
-                                } else {
-                                    subtitle = ""
-                                }
-                                let sourceLabel = source.isEmpty ? "Agent" : String(source.prefix(1).uppercased() + source.dropFirst())
+                            if let summary = summarizeHookNotificationObject(stdinObj, defaultMessage: nil) {
+                                let sourceLabel = agentHookSourceLabel(source)
                                 var terminalArgs = ["notify-terminal", "--title", sourceLabel]
-                                if !subtitle.isEmpty {
-                                    terminalArgs += ["--subtitle", subtitle]
+                                if !summary.subtitle.isEmpty {
+                                    terminalArgs += ["--subtitle", summary.subtitle]
                                 }
-                                let body = String(message.prefix(180))
-                                    .replacingOccurrences(of: "\n", with: " ")
-                                    .replacingOccurrences(of: "\r", with: "")
-                                terminalArgs += ["--body", body]
+                                terminalArgs += ["--body", summary.body]
                                 try runNotifyTerminal(commandArgs: terminalArgs)
                                 print("{}")
                                 return
@@ -3619,7 +3574,6 @@ struct CMUXCLI {
             if command == "claude-hook",
                commandArgs.first?.lowercased() == "notification" || commandArgs.first?.lowercased() == "notify",
                processEnv["TMUX"]?.isEmpty == false {
-                let hookArgs = Array(commandArgs.dropFirst())
                 let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
                 let parsedInput = parseClaudeHookInput(rawInput: rawInput)
                 let summary = summarizeClaudeHookNotification(parsedInput: parsedInput)
@@ -24463,22 +24417,11 @@ struct CMUXCLI {
         } else {
             body = rawBody
         }
-        let escapedTitle = title
-            .replacingOccurrences(of: ";", with: ":")
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\r", with: "")
-            .replacingOccurrences(of: String(UnicodeScalar(0x1B)!), with: "")
-        let escapedBody = body
-            .replacingOccurrences(of: ";", with: ":")
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\r", with: "")
-            .replacingOccurrences(of: String(UnicodeScalar(0x1B)!), with: "")
         // Truncate to Ghostty's fixed-size notification buffers.
-        // Ghostty uses title[63] and body[255] so bytes beyond those
-        // limits are silently dropped by the terminal. Truncating here
-        // avoids sending unnecessarily long escape sequences.
-        let trimmedTitle = String(escapedTitle.prefix(63))
-        let trimmedBody = String(escapedBody.prefix(255))
+        // Ghostty uses title[63] and body[255] byte buffers, so sanitize
+        // and truncate by UTF-8 byte count before emitting the OSC string.
+        let trimmedTitle = sanitizeForOSC777(title, maxBytes: 63)
+        let trimmedBody = sanitizeForOSC777(body, maxBytes: 255)
         // OSC 777 notify: ESC ] 777 ; notify ; <title> ; <body> BEL
         var oscBytes = Data()
         oscBytes.append(0x1B) // ESC
@@ -26359,23 +26302,39 @@ struct CMUXCLI {
             return ("Waiting", "Claude is waiting for your input")
         }
 
+        return summarizeHookNotificationObject(object, defaultMessage: "Claude needs your input")
+            ?? ("Attention", "Claude needs your attention")
+    }
+
+    private func summarizeHookNotificationObject(_ object: [String: Any], defaultMessage: String?) -> (subtitle: String, body: String)? {
         let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
-        let signalParts = [
+        guard let message = hookNotificationMessage(in: object, nested: nested) ?? defaultMessage else {
+            return nil
+        }
+        let normalizedMessage = normalizedSingleLine(message)
+        let signal = hookNotificationSignal(in: object, nested: nested)
+        var classified = classifyClaudeNotification(signal: signal, message: normalizedMessage)
+        classified.body = truncate(classified.body, maxLength: 180)
+        return classified
+    }
+
+    private func hookNotificationMessage(in object: [String: Any], nested: [String: Any]) -> String? {
+        firstString(in: object, keys: ["message", "body", "text", "prompt", "error", "description", "content"])
+            ?? firstString(in: nested, keys: ["message", "body", "text", "prompt", "error", "description", "content"])
+    }
+
+    private func hookNotificationSignal(in object: [String: Any], nested: [String: Any]) -> String {
+        [
             firstString(in: object, keys: ["event", "event_name", "hook_event_name", "type", "kind"]),
             firstString(in: object, keys: ["notification_type", "matcher", "reason"]),
             firstString(in: nested, keys: ["type", "kind", "reason"])
-        ]
-        let messageCandidates = [
-            firstString(in: object, keys: ["message", "body", "text", "prompt", "error", "description"]),
-            firstString(in: nested, keys: ["message", "body", "text", "prompt", "error", "description"])
-        ]
-        let message = messageCandidates.compactMap { $0 }.first ?? "Claude needs your input"
-        let normalizedMessage = normalizedSingleLine(message)
-        let signal = signalParts.compactMap { $0 }.joined(separator: " ")
-        var classified = classifyClaudeNotification(signal: signal, message: normalizedMessage)
+        ].compactMap { $0 }.joined(separator: " ")
+    }
 
-        classified.body = truncate(classified.body, maxLength: 180)
-        return classified
+    private func agentHookSourceLabel(_ source: String) -> String {
+        let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = trimmed.first else { return "Agent" }
+        return String(first).uppercased() + String(trimmed.dropFirst())
     }
 
     private func summarizeAgentHookNotification(
@@ -26819,8 +26778,36 @@ struct CMUXCLI {
         lowercasedText.split { !$0.isLetter && !$0.isNumber }
     }
 
+    private func truncateUTF8Bytes(_ value: String, maxBytes: Int) -> String {
+        guard maxBytes > 0 else { return "" }
+        guard value.utf8.count > maxBytes else { return value }
+        var bytes = Array(value.utf8.prefix(maxBytes))
+        while !bytes.isEmpty, String(bytes: bytes, encoding: .utf8) == nil {
+            bytes.removeLast()
+        }
+        return String(bytes: bytes, encoding: .utf8) ?? ""
+    }
+
+    private func strippedNotificationControls(_ value: String) -> String {
+        String(String.UnicodeScalarView(value.unicodeScalars.filter { scalar in
+            let codePoint = scalar.value
+            if codePoint < 0x20 {
+                return codePoint == 0x09
+            }
+            return codePoint != 0x7F && codePoint != 0x9C
+        }))
+    }
+
+    private func sanitizeForOSC777(_ value: String, maxBytes: Int) -> String {
+        // OSC strings are terminated by BEL, ESC \, or ST. Do not relax this:
+        // embedded controls can prematurely terminate or corrupt the sequence.
+        let normalized = normalizedSingleLine(strippedNotificationControls(value))
+            .replacingOccurrences(of: ";", with: ":")
+        return truncateUTF8Bytes(normalized, maxBytes: maxBytes)
+    }
+
     private func sanitizeNotificationField(_ value: String) -> String {
-        return normalizedSingleLine(value)
+        return normalizedSingleLine(strippedNotificationControls(value))
             .replacingOccurrences(of: "|", with: "¦")
     }
 
@@ -30768,6 +30755,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let suppressCompletionNotification = suppressVisibleMutations
                 || codexSubagentSignals.hasSubagentNotificationRelay
 
+            if !suppressCompletionNotification {
                 _ = try? sendNotificationForCaller(
                     client: client,
                     title: def.displayName,
@@ -30803,16 +30791,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         preferTTY: mapped == nil && hookWsFlag == nil && hookSurfaceFlag == nil,
                         pid: pid
                     )
-                } else {
-                    setAgentLifecycle(
-                        client: client,
-                        key: def.statusKey,
-                        lifecycle: .idle,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId
-                    )
-                    setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
                 }
+            } else {
+                setAgentLifecycle(
+                    client: client,
+                    key: def.statusKey,
+                    lifecycle: .idle,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
+                setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
             }
 
             // Opt-in auto-naming for generic-agent sessions: a detached pass so the
@@ -33257,56 +33245,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             // can be forwarded as terminal escape notifications so the user
             // still sees them. Other events are silently no-op'd.
             if rawEvent == "Notification" || rawEvent == "notification" {
-                let nested = (stdinObj["notification"] as? [String: Any])
-                    ?? (stdinObj["data"] as? [String: Any])
-                    ?? [:]
-                let messageCandidates = [
-                    stdinObj["message"] as? String,
-                    stdinObj["body"] as? String,
-                    stdinObj["text"] as? String,
-                    stdinObj["error"] as? String,
-                    stdinObj["description"] as? String,
-                    stdinObj["content"] as? String,
-                    nested["message"] as? String,
-                    nested["body"] as? String,
-                    nested["text"] as? String
-                ]
-                let notificationMessage = messageCandidates
-                    .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .first(where: { !$0.isEmpty })
-                if let notificationMessage {
-                    let signalParts = [
-                        stdinObj["event"] as? String,
-                        stdinObj["event_name"] as? String,
-                        stdinObj["notification_type"] as? String,
-                        stdinObj["reason"] as? String,
-                        nested["type"] as? String,
-                        nested["reason"] as? String
-                    ]
-                    let signal = signalParts.compactMap { $0 }.joined(separator: " ").lowercased()
-                    let lowerMsg = notificationMessage.lowercased()
-                    let combined = "\(signal) \(lowerMsg)"
-                    let subtitle: String
-                    if combined.contains("permission") || combined.contains("approve") || combined.contains("approval") {
-                        subtitle = "Permission"
-                    } else if combined.contains("error") || combined.contains("failed") || combined.contains("exception") {
-                        subtitle = "Error"
-                    } else if combined.contains("complet") || combined.contains("finish") || combined.contains("done") {
-                        subtitle = "Completed"
-                    } else if combined.contains("idle") || combined.contains("wait") || combined.contains("input") {
-                        subtitle = "Waiting"
-                    } else {
-                        subtitle = ""
+                if let summary = summarizeHookNotificationObject(stdinObj, defaultMessage: nil) {
+                    let sourceLabel = agentHookSourceLabel(source)
+                    var terminalArgs = ["notify-terminal", "--title", sourceLabel]
+                    if !summary.subtitle.isEmpty {
+                        terminalArgs += ["--subtitle", summary.subtitle]
                     }
-                    let sourceLabel = source.isEmpty ? "Agent" : source.prefix(1).uppercased() + source.dropFirst()
-                    var terminalArgs = ["notify-terminal", "--title", String(sourceLabel)]
-                    if !subtitle.isEmpty {
-                        terminalArgs += ["--subtitle", subtitle]
-                    }
-                    let body = String(notificationMessage.prefix(180))
-                        .replacingOccurrences(of: "\n", with: " ")
-                        .replacingOccurrences(of: "\r", with: "")
-                    terminalArgs += ["--body", body]
+                    terminalArgs += ["--body", summary.body]
                     try runNotifyTerminal(commandArgs: terminalArgs)
                     print("{}")
                     return

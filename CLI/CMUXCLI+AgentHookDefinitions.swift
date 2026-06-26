@@ -509,6 +509,17 @@ extension CMUXCLI {
         return tokenLists
     }
 
+    private static let grokPinnedHookMarker = "cmux-grok-hook-v2"
+    private static let antigravityPinnedHookMarker = "cmux-antigravity-hook-v2"
+
+    private static func usesPinnedHookDispatch(_ def: AgentHookDef) -> Bool {
+        def.name == "grok" || def.name == "antigravity"
+    }
+
+    private static func pinnedHookMarker(for def: AgentHookDef) -> String {
+        def.name == "antigravity" ? antigravityPinnedHookMarker : grokPinnedHookMarker
+    }
+
     static func hookMarkers(for def: AgentHookDef) -> [String] {
         var markers = [def.hookMarker]
         if def.name == "codex" {

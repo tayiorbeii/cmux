@@ -456,7 +456,65 @@ func terminalKeyboardCopyModeResolve(
     isBlockMode: Bool = false,
     state: inout TerminalKeyboardCopyModeInputState
 ) -> TerminalKeyboardCopyModeResolution {
-    CmuxTerminalCore.terminalKeyboardCopyModeResolve(
+    let normalized = terminalKeyboardCopyModeNormalizedModifiers(modifierFlags)
+    let chars = terminalKeyboardCopyModeChars(charactersIgnoringModifiers)
+
+    if keyCode == 53 { // Escape
+        state.reset()
+        return .perform(.exit, count: 1)
+    }
+
+    if state.pendingYankLine {
+        if chars == "y", normalized.isEmpty || normalized == [.shift] {
+            let count = terminalKeyboardCopyModeClampCount(state.countPrefix ?? 1)
+            state.reset()
+            return .perform(.copyLineAndExit, count: count)
+        }
+        // Only `yy`/`Y` are supported as line-yank operators, so cancel the
+        // pending yank and treat this key as a fresh command.
+        state.pendingYankLine = false
+    }
+
+    if state.pendingG {
+        if chars == "g", normalized.isEmpty {
+            let count = terminalKeyboardCopyModeClampCount(state.countPrefix ?? 1)
+            let action: TerminalKeyboardCopyModeAction = hasSelection ? .adjustSelection(.home) : .scrollToTop
+            state.reset()
+            return .perform(action, count: count)
+        }
+        // Not `gg`, cancel and treat as fresh command.
+        state.pendingG = false
+    }
+
+    if normalized.isEmpty,
+       let scalar = chars.unicodeScalars.first,
+       scalar.isASCII,
+       scalar.value >= 48,
+       scalar.value <= 57 {
+        let digit = Int(scalar.value - 48)
+        if digit == 0 {
+            if let currentCount = state.countPrefix {
+                state.countPrefix = terminalKeyboardCopyModeClampCount(currentCount * 10)
+                return .consume
+            }
+        } else {
+            let currentCount = state.countPrefix ?? 0
+            state.countPrefix = terminalKeyboardCopyModeClampCount((currentCount * 10) + digit)
+            return .consume
+        }
+    }
+
+    if !hasSelection, chars == "y", normalized.isEmpty {
+        state.pendingYankLine = true
+        return .consume
+    }
+
+    if chars == "g", normalized.isEmpty {
+        state.pendingG = true
+        return .consume
+    }
+
+    guard let action = terminalKeyboardCopyModeAction(
         keyCode: keyCode,
         charactersIgnoringModifiers: charactersIgnoringModifiers,
         modifierFlags: modifierFlags,
