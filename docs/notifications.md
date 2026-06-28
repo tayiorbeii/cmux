@@ -211,6 +211,88 @@ export const CmuxNotificationPlugin = async ({ $, }) => {
 };
 ```
 
+> **Tip:** Set `hooksMode: "replace"` in a project `notifications` section to ignore inherited hooks.
+
+## Tmux Alert Bridge
+
+When you run tmux inside cmux, the **tmux alert bridge** forwards tmux activity alerts to cmux notifications. This is useful for AI agent workflows where you want to know when an agent finishes, needs input, or emits a bell.
+
+### How It Works
+
+Three tmux alert hooks are installed globally:
+
+| Hook | Event | Trigger |
+|------|-------|---------|
+| `alert-bell` | **AI alert** | Bell character (`\a`) from any pane |
+| `alert-activity` | **AI active** | Output detected after tmux silence period |
+| `alert-silence` | **AI waiting** | No output for the monitor-silence interval |
+
+Each hook calls `cmux hooks feed --source tmux-bridge` with pane+socket metadata, including tmux's pane title, window name, and current directory when available. The cmux socket routes each notification to the correct workspace, folds a concise pane/window context into the notification title, and includes the same context in the body.
+
+If you still see a generic bell notification from the terminal layer, cmux labels tmux-titled panes as `Bell received from tmux` instead of `Terminal bell`; that path means tmux forwarded only a bell and no original title/body payload was recoverable. For rich notification content from programs running inside tmux, prefer calling `cmux notify --title ... --body ...` directly. tmux consumes unwrapped OSC notification sequences such as `OSC 777`, so by the time cmux receives tmux's forwarded bell there is no title/body payload left to recover. The `cmux notify` CLI uses the cmux socket instead of terminal escape sequences and includes tmux pane metadata (queried in a single batch) so notifications are routed back to the originating pane. When `--title` is omitted inside tmux, cmux uses concise tmux pane/window/command metadata as a title fallback instead of the generic "Notification" title; when `--subtitle` is omitted, it uses tmux session/window/pane location metadata. If no body is provided, cmux adds tmux command/directory context as a fallback body. These defaults are collected lazily in one tmux query only when a fallback is needed, keeping explicit direct notifications lightweight. For small shell scripts, `cmux notify --title "Build done" "All tests passed"` is equivalent to passing `--body`, `--body -`/`--message -` read piped or redirected stdin explicitly, `--body-file` reads from a log file, and piped stdin becomes the notification body when no body argument is provided. stdin/file bodies keep the last 16 KB by default before sending to the socket (configurable with `--body-max-bytes`, up to 64 KB) so accidental large logs stay lightweight while preserving the most recent output.
+
+### Prerequisites
+
+- You must run the install from a shell **inside cmux** (so `CMUX_SOCKET_PATH` is set).
+- The installer embeds the current cmux socket path and prefers cmux's bundled CLI path when available, so the installed hooks keep working even if tmux's environment later loses `CMUX_SOCKET_PATH` or tmux's `PATH` does not resolve `cmux`.
+
+### Install
+
+```bash
+# Install tmux bridge hooks
+cmux hooks tmux install
+
+# Or install everything at once (agents + tmux bridge)
+cmux hooks setup
+```
+
+During `cmux hooks setup`, if tmux is detected on `PATH`, you're prompted to install the bridge. Pass `--yes` for unattended setup:
+
+```bash
+cmux hooks setup --yes
+```
+
+### What Gets Configured
+
+`cmux hooks tmux install` sets these tmux session options and installs three hooks:
+
+```
+monitor-bell on
+bell-action any
+monitor-activity on
+monitor-silence 15
+
+alert-bell    → cmux hooks feed --source tmux-bridge --event bell ...
+alert-activity → cmux hooks feed --source tmux-bridge --event activity ...
+alert-silence  → cmux hooks feed --source tmux-bridge --event silence ...
+```
+
+### Test
+
+1. Install the hooks: `cmux hooks tmux install`
+2. Inside a tmux pane, send a bell: `printf '\a'`
+3. You should see an "AI alert" notification in cmux's sidebar
+
+To test activity/silence alerts, run a slow command (like `sleep 30`) and wait for the 15-second silence threshold.
+
+### Verify
+
+```bash
+# Check all installed hooks
+tmux show-hooks -g | grep cmux-tmux-bridge
+
+# Check session options
+tmux show-options -g | grep -E 'monitor-(bell|activity|silence)|bell-action'
+```
+
+### Uninstall
+
+```bash
+cmux hooks tmux uninstall
+```
+
+This removes only cmux-managed hooks (marked with `# cmux-tmux-bridge`) and leaves other hooks untouched.
+
 ## Environment Variables
 
 cmux sets these in child shells:
@@ -224,7 +306,7 @@ cmux sets these in child shells:
 ## CLI Commands
 
 ```
-cmux notify --title <text> [--subtitle <text>] [--body <text>] [--tab <id|index>] [--panel <id|index>]
+cmux notify --title <text> [--subtitle <text>] [--body <text|-> | --message <text|-> | --body-file <path|->] [--body-max-bytes <n>] [<body> | stdin] [--workspace <id|ref>] [--surface <id|ref>]
 cmux list-notifications
 cmux dismiss-notification (--id <notification-id> | --all-read)
 cmux mark-notification-read (--id <notification-id> | --workspace <id|ref> [--surface <id|ref>] | --all)
@@ -234,6 +316,9 @@ cmux clear-notifications
 cmux set-status <key> <value>
 cmux clear-status <key>
 cmux ping
+cmux hooks setup
+cmux hooks tmux install
+cmux hooks tmux uninstall
 ```
 
 ## Best Practices
