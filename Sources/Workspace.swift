@@ -43,6 +43,12 @@ private final class WorkspacePendingTerminalInputObserver: @unchecked Sendable {
     var observer: NSObjectProtocol?
 }
 
+struct TmuxPaneRoute: Equatable {
+    let metadata: TmuxPaneMetadata
+    let surfaceId: UUID?
+    let lastSeen: Date
+}
+
 private struct SessionPaneRestoreEntry {
     let paneId: PaneID
     let snapshot: SessionPaneLayoutSnapshot
@@ -2501,12 +2507,8 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var remoteLastHeartbeatAt: Date?
     @Published var listeningPorts: [Int] = []
     @Published private(set) var activeRemoteTerminalSessionCount: Int = 0
-    /// The controlling-terminal device name per panel id; stored in the
-    /// surface-registry sub-model.
-    var surfaceTTYNames: [UUID: String] {
-        get { surfaceRegistry.surfaceTTYNames }
-        set { surfaceRegistry.surfaceTTYNames = newValue }
-    }
+    var surfaceTTYNames: [UUID: String] = [:]
+    var tmuxPaneRoutes: [String: TmuxPaneRoute] = [:]
     private var remoteSessionController: RemoteSessionCoordinator?
     private var pendingRemoteForegroundAuthToken: String?
     var activeRemoteSessionControllerID: UUID?
@@ -5101,12 +5103,10 @@ final class Workspace: Identifiable, ObservableObject {
         manualUnreadMarkedAt = manualUnreadMarkedAt.filter { validSurfaceIds.contains($0.key) }
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
-        restoredGuardedWorkingDirectoriesByPanelId = restoredGuardedWorkingDirectoriesByPanelId.filter {
-            validSurfaceIds.contains($0.key)
+        tmuxPaneRoutes = tmuxPaneRoutes.filter { route in
+            guard let surfaceId = route.value.surfaceId else { return true }
+            return validSurfaceIds.contains(surfaceId)
         }
-        remotePTYSessionIDsByPanelId = remotePTYSessionIDsByPanelId.filter { validSurfaceIds.contains($0.key) }
-        endedPersistentRemotePTYAttachSurfaceIds = endedPersistentRemotePTYAttachSurfaceIds.filter { validSurfaceIds.contains($0) }
-        pruneRemoteRelaySurfaceAliases(validSurfaceIds: validSurfaceIds)
         remoteDetectedSurfaceIds = remoteDetectedSurfaceIds.filter { validSurfaceIds.contains($0) }
         panelShellActivityStates = panelShellActivityStates.filter { validSurfaceIds.contains($0.key) }
         panelPullRequests = panelPullRequests.filter { validSurfaceIds.contains($0.key) }
@@ -5311,6 +5311,77 @@ final class Workspace: Identifiable, ObservableObject {
 
     func sidebarMetadataBlocksInDisplayOrder() -> [SidebarMetadataBlock] {
         sidebarMetadata.metadataBlocksInDisplayOrder()
+    }
+
+    private func normalizedTmuxRouteValue(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private func tmuxRouteValueCompatible(_ incoming: String?, _ recorded: String?) -> Bool {
+        guard let incoming = normalizedTmuxRouteValue(incoming),
+              let recorded = normalizedTmuxRouteValue(recorded) else {
+            return true
+        }
+        return incoming == recorded
+    }
+
+    private func tmuxPaneRoute(_ route: TmuxPaneRoute, isCompatibleWith metadata: TmuxPaneMetadata) -> Bool {
+        tmuxRouteValueCompatible(metadata.paneId, route.metadata.paneId)
+            && tmuxRouteValueCompatible(metadata.paneTTY, route.metadata.paneTTY)
+            && tmuxRouteValueCompatible(metadata.session, route.metadata.session)
+            && tmuxRouteValueCompatible(metadata.window, route.metadata.window)
+            && tmuxRouteValueCompatible(metadata.pane, route.metadata.pane)
+    }
+
+    func tmuxPaneRouteKeys(metadata: TmuxPaneMetadata) -> [String] {
+        var keys: [String] = []
+        func append(_ key: String?) {
+            guard let key, !keys.contains(key) else { return }
+            keys.append(key)
+        }
+        if let paneTTY = normalizedTmuxRouteValue(metadata.paneTTY) {
+            append("pane_tty:\(paneTTY)")
+        }
+        let locationComponents = [metadata.session, metadata.window, metadata.pane]
+            .compactMap { normalizedTmuxRouteValue($0) }
+        if locationComponents.count == 3 {
+            append("location:\(locationComponents.joined(separator: ":"))")
+        }
+        if let paneId = normalizedTmuxRouteValue(metadata.paneId) {
+            append("pane_id:\(paneId)")
+        }
+        return keys
+    }
+
+    func recordTmuxPaneRoute(metadata: TmuxPaneMetadata?, surfaceId: UUID?, now: Date = Date()) {
+        guard let metadata, metadata.hasContent else { return }
+        let keys = tmuxPaneRouteKeys(metadata: metadata)
+        guard !keys.isEmpty else { return }
+        let cutoff = now.addingTimeInterval(-60 * 60 * 6)
+        tmuxPaneRoutes = tmuxPaneRoutes.filter { $0.value.lastSeen >= cutoff }
+        let route = TmuxPaneRoute(metadata: metadata, surfaceId: surfaceId, lastSeen: now)
+        for key in keys {
+            tmuxPaneRoutes[key] = route
+        }
+    }
+
+    func tmuxPaneRoute(metadata: TmuxPaneMetadata?, now: Date = Date()) -> TmuxPaneRoute? {
+        guard let metadata else { return nil }
+        let cutoff = now.addingTimeInterval(-60 * 60 * 6)
+        for key in tmuxPaneRouteKeys(metadata: metadata) {
+            guard let route = tmuxPaneRoutes[key] else { continue }
+            if route.lastSeen < cutoff {
+                tmuxPaneRoutes.removeValue(forKey: key)
+                continue
+            }
+            if tmuxPaneRoute(route, isCompatibleWith: metadata) {
+                return route
+            }
+        }
+        return nil
     }
 
     @discardableResult

@@ -90,8 +90,7 @@ extension CmuxSettingsFileStore {
             [
                 "terminal": [
                     "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
-                    "scrollSpeed": TerminalScrollSpeedSettings.defaultMultiplier,
-                    "copyOnSelect": TerminalCopyOnSelectSettings.defaultCopyOnSelect,
+                    "tmuxAwarePaneNavigation": TmuxPaneNavigationSettings.defaultEnabled,
                     "autoResumeAgentSessions": AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions,
                     "showTextBoxOnNewTerminals": TerminalTextBoxInputSettings.defaultShowOnNewTerminals,
                     "focusTextBoxOnNewTerminals": TerminalTextBoxInputSettings.defaultFocusOnNewTerminals,

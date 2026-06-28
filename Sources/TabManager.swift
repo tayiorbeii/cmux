@@ -3747,7 +3747,39 @@ class TabManager: ObservableObject {
         tab.moveFocus(direction: direction)
     }
 
-    // MARK: - Focus History Navigation (CmuxWorkspaceNavigation)
+    /// Handles a tmux-aware focus shortcut for the currently focused terminal pane.
+    /// Returns true when the shortcut was consumed by tmux handling (including the async
+    /// cmux fallback that runs if tmux reports the active pane is already at the edge).
+    func movePaneFocusTmuxAware(direction: NavigationDirection) -> Bool {
+        guard let selectedTabId,
+              let tab = tabs.first(where: { $0.id == selectedTabId }),
+              let surfaceId = tab.focusedPanelId else {
+            return false
+        }
+        return moveSplitFocusTmuxAware(tabId: tab.id, surfaceId: surfaceId, direction: direction)
+    }
+
+    /// Handles tmux-aware focus for a specific surface, used by Ghostty's native
+    /// GOTO_SPLIT action path. Returns false when the target is not a tmux-managed terminal.
+    func moveSplitFocusTmuxAware(tabId: UUID, surfaceId: UUID, direction: NavigationDirection) -> Bool {
+        guard TmuxPaneNavigationSettings.isEnabled(),
+              let tab = tabs.first(where: { $0.id == tabId }),
+              let terminalPanel = tab.panels[surfaceId] as? TerminalPanel else {
+            return false
+        }
+
+        let ttyName = tab.surfaceTTYNames[surfaceId]
+        return TmuxNavigationController.shared.handleNavigation(
+            tabManager: self,
+            tabId: tab.id,
+            surfaceId: surfaceId,
+            ttyName: ttyName,
+            tmuxStartCommand: terminalPanel.surface.tmuxStartCommand,
+            direction: direction
+        )
+    }
+
+    // MARK: - Recent Tab History Navigation
 
     // The back/forward stack, suppression depth, and navigation logic live
     // in FocusHistoryModel; these forwarders keep every existing entrypoint
@@ -6132,14 +6164,206 @@ extension TabManager {
     }
 }
 
-// The hook methods live in the class body (they touch private selection /
-// DEBUG state); these extensions only bind the conformances.
+// The hook methods live in the class body; these extensions bind the CmuxWorkspaces conformances.
 extension TabManager: WorkspacesHosting {}
 extension TabManager: WorkspaceGroupHosting {}
 
-// Workspace satisfies the CmuxWorkspaces tab seam with its existing
-// id/groupId/isPinned storage.
 extension Workspace: WorkspaceTabRepresenting {}
+
+private struct TmuxNavigationState {
+    var isManaged: Bool
+    var ttyName: String?
+    var checkedAt: Date
+}
+
+final class TmuxNavigationController {
+    static let shared = TmuxNavigationController()
+
+    private let lock = NSLock()
+    private var states: [UUID: TmuxNavigationState] = [:]
+    private var refreshesInFlight: Set<UUID> = []
+    private let cacheTTL: TimeInterval = 30
+
+    private init() {}
+
+    func handleNavigation(
+        tabManager: TabManager,
+        tabId: UUID,
+        surfaceId: UUID,
+        ttyName: String?,
+        tmuxStartCommand: String?,
+        direction: NavigationDirection
+    ) -> Bool {
+        let cached = cachedState(surfaceId: surfaceId)
+        let targetTTY = Self.trimmedTTYName(ttyName) ?? cached?.ttyName
+        let startCommandLooksTmux = tmuxStartCommand?.localizedCaseInsensitiveContains("tmux") == true
+        let isManaged = startCommandLooksTmux || cached?.isManaged == true
+
+        if startCommandLooksTmux || targetTTY != nil {
+            refreshTmuxStateIfNeeded(surfaceId: surfaceId, ttyName: targetTTY, force: cached == nil && !startCommandLooksTmux)
+        }
+
+        guard isManaged, let targetTTY else {
+            return false
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak tabManager] in
+            let atEdge = Self.tmuxPaneIsAtEdge(clientTTY: targetTTY, direction: direction)
+            if atEdge == false, Self.tmuxSelectPane(clientTTY: targetTTY, direction: direction) {
+                return
+            }
+
+            if atEdge == nil {
+                self.updateState(surfaceId: surfaceId, isManaged: false, ttyName: targetTTY)
+            }
+
+            DispatchQueue.main.async { [weak tabManager] in
+                guard let tabManager,
+                      let tab = tabManager.tabs.first(where: { $0.id == tabId }),
+                      tab.focusedPanelId == surfaceId else {
+                    return
+                }
+                tabManager.moveSplitFocus(tabId: tabId, surfaceId: surfaceId, direction: direction)
+            }
+        }
+
+        return true
+    }
+
+    private func cachedState(surfaceId: UUID) -> TmuxNavigationState? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let state = states[surfaceId], Date().timeIntervalSince(state.checkedAt) <= cacheTTL else {
+            states.removeValue(forKey: surfaceId)
+            return nil
+        }
+        return state
+    }
+
+    private func updateState(surfaceId: UUID, isManaged: Bool, ttyName: String?) {
+        lock.lock()
+        states[surfaceId] = TmuxNavigationState(isManaged: isManaged, ttyName: ttyName, checkedAt: Date())
+        refreshesInFlight.remove(surfaceId)
+        lock.unlock()
+    }
+
+    private func refreshTmuxStateIfNeeded(surfaceId: UUID, ttyName: String?, force: Bool = false) {
+        guard let ttyName else { return }
+        lock.lock()
+        let hasFreshState = states[surfaceId].map { Date().timeIntervalSince($0.checkedAt) <= cacheTTL } ?? false
+        if refreshesInFlight.contains(surfaceId) || (!force && hasFreshState) {
+            lock.unlock()
+            return
+        }
+        refreshesInFlight.insert(surfaceId)
+        lock.unlock()
+
+        DispatchQueue.global(qos: .utility).async {
+            let isManaged = Self.normalizedTTYName(ttyName).map { normalizedTTY in
+                Self.ttyHasTmuxProcess(normalizedTTY) || Self.tmuxClientTTYs().contains(normalizedTTY)
+            } ?? false
+            self.updateState(surfaceId: surfaceId, isManaged: isManaged, ttyName: ttyName)
+        }
+    }
+
+    private static func trimmedTTYName(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty,
+              trimmed != "not a tty" else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private static func normalizedTTYName(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty,
+              trimmed != "not a tty" else {
+            return nil
+        }
+        return trimmed.split(separator: "/").last.map(String.init) ?? trimmed
+    }
+
+    private static func tmuxFormat(for direction: NavigationDirection) -> String {
+        switch direction {
+        case .left: return "#{pane_at_left}"
+        case .right: return "#{pane_at_right}"
+        case .up: return "#{pane_at_top}"
+        case .down: return "#{pane_at_bottom}"
+        }
+    }
+
+    private static func tmuxSelectFlag(for direction: NavigationDirection) -> String {
+        switch direction {
+        case .left: return "-L"
+        case .right: return "-R"
+        case .up: return "-U"
+        case .down: return "-D"
+        }
+    }
+
+    private static func tmuxPaneIsAtEdge(clientTTY: String, direction: NavigationDirection) -> Bool? {
+        let output = runTmux(arguments: ["display-message", "-t", clientTTY, "-p", tmuxFormat(for: direction)])
+        let trimmed = output?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed == "1" { return true }
+        if trimmed == "0" { return false }
+        return nil
+    }
+
+    private static func tmuxSelectPane(clientTTY: String, direction: NavigationDirection) -> Bool {
+        runTmux(arguments: ["select-pane", "-t", clientTTY, tmuxSelectFlag(for: direction)]) != nil
+    }
+
+    private static func tmuxClientTTYs() -> Set<String> {
+        guard let output = runTmux(arguments: ["list-clients", "-F", "#{client_tty}"]) else { return [] }
+        return Set(output
+            .split(whereSeparator: \.isNewline)
+            .compactMap { normalizedTTYName(String($0)) })
+    }
+
+    private static func ttyHasTmuxProcess(_ ttyName: String) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-t", ttyName, "-o", "comm="]
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = Pipe()
+        do {
+            try process.run()
+        } catch {
+            return false
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return false }
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        guard let text = String(data: data, encoding: .utf8) else { return false }
+        return text
+            .split(whereSeparator: \.isNewline)
+            .contains { line in
+                let executable = line.split(separator: "/").last.map(String.init) ?? String(line)
+                return executable == "tmux"
+            }
+    }
+
+    private static func runTmux(arguments: [String]) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["tmux"] + arguments
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8)
+    }
+}
 
 extension Notification.Name {
     // The sidebar multi-selection sync events moved to CmuxSidebar as typed

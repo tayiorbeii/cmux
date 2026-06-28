@@ -513,71 +513,16 @@ final class CmuxSettingsFileStore {
             logInvalid("terminal.showTextBoxOnNewTerminals", sourcePath: sourcePath)
         }
 
-        if let value = jsonBool(section["focusTextBoxOnNewTerminals"]) {
-            snapshot.managedUserDefaults[TerminalTextBoxInputSettings.focusOnNewTerminalsKey] = .bool(value)
-        } else if section.keys.contains("focusTextBoxOnNewTerminals") {
-            logInvalid("terminal.focusTextBoxOnNewTerminals", sourcePath: sourcePath)
+        if let value = jsonBool(section["tmuxAwarePaneNavigation"]) {
+            snapshot.managedUserDefaults[TmuxPaneNavigationSettings.enabledKey] = .bool(value)
+        } else if section.keys.contains("tmuxAwarePaneNavigation") {
+            logInvalid("terminal.tmuxAwarePaneNavigation", sourcePath: sourcePath)
         }
 
-        if let rawHibernation = section["agentHibernation"],
-           let hibernation = rawHibernation as? [String: Any] {
-            if let value = jsonBool(hibernation["enabled"]) {
-                snapshot.managedUserDefaults[AgentHibernationSettings.enabledKey] = .bool(value)
-            } else if hibernation.keys.contains("enabled") {
-                logInvalid("terminal.agentHibernation.enabled", sourcePath: sourcePath)
-            }
-            if let value = jsonInt(hibernation["idleSeconds"]) {
-                snapshot.managedUserDefaults[AgentHibernationSettings.idleSecondsKey] = .double(
-                    AgentHibernationSettings.sanitizedIdleSeconds(TimeInterval(value))
-                )
-            } else if hibernation.keys.contains("idleSeconds") {
-                logInvalid("terminal.agentHibernation.idleSeconds", sourcePath: sourcePath)
-            }
-            if let value = jsonInt(hibernation["maxLiveTerminals"]) {
-                snapshot.managedUserDefaults[AgentHibernationSettings.maxLiveTerminalsKey] = .int(
-                    AgentHibernationSettings.sanitizedMaxLiveTerminals(value)
-                )
-            } else if hibernation.keys.contains("maxLiveTerminals") {
-                logInvalid("terminal.agentHibernation.maxLiveTerminals", sourcePath: sourcePath)
-            }
-        } else if section.keys.contains("agentHibernation") {
-            logInvalid("terminal.agentHibernation", sourcePath: sourcePath)
-        }
-
-        if let rawRendererRealization = section["rendererRealization"],
-           let rendererRealization = rawRendererRealization as? [String: Any] {
-            if let value = jsonBool(rendererRealization["enabled"]) {
-                snapshot.managedUserDefaults[RendererRealizationSettings.enabledKey] = .bool(value)
-            } else if rendererRealization.keys.contains("enabled") {
-                logInvalid("terminal.rendererRealization.enabled", sourcePath: sourcePath)
-            }
-            if let value = jsonInt(rendererRealization["idleSeconds"]) {
-                snapshot.managedUserDefaults[RendererRealizationSettings.idleSecondsKey] = .double(
-                    RendererRealizationSettings.sanitizedIdleSeconds(TimeInterval(value))
-                )
-            } else if rendererRealization.keys.contains("idleSeconds") {
-                logInvalid("terminal.rendererRealization.idleSeconds", sourcePath: sourcePath)
-            }
-            if let value = jsonInt(rendererRealization["maxWarmRenderers"]) {
-                snapshot.managedUserDefaults[RendererRealizationSettings.maxWarmRenderersKey] = .int(
-                    RendererRealizationSettings.sanitizedMaxWarmRenderers(value)
-                )
-            } else if rendererRealization.keys.contains("maxWarmRenderers") {
-                logInvalid("terminal.rendererRealization.maxWarmRenderers", sourcePath: sourcePath)
-            }
-        } else if section.keys.contains("rendererRealization") {
-            logInvalid("terminal.rendererRealization", sourcePath: sourcePath)
-        }
-
-        if let value = jsonInt(section["textBoxMaxLines"]) {
-            if value >= TerminalTextBoxInputSettings.minimumMaxLines,
-               value <= TerminalTextBoxInputSettings.maximumMaxLines {
-                snapshot.managedUserDefaults[TerminalTextBoxInputSettings.maxLinesKey] = .int(value)
-            } else {
-                logInvalid("terminal.textBoxMaxLines", sourcePath: sourcePath)
-            }
-        } else if section.keys.contains("textBoxMaxLines") {
-            logInvalid("terminal.textBoxMaxLines", sourcePath: sourcePath)
+        if let value = jsonBool(section["autoResumeAgentSessions"]) {
+            snapshot.managedUserDefaults[AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey] = .bool(value)
+        } else if section.keys.contains("autoResumeAgentSessions") {
+            logInvalid("terminal.autoResumeAgentSessions", sourcePath: sourcePath)
         }
     }
 
@@ -586,8 +531,6 @@ final class CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
-        // Accept numeric doubles (e.g. 15 or 15.0) and round to integer points,
-        // matching the integer `markdown.fontSize` catalog/UI representation.
         if let value = jsonDouble(section["fontSize"]) {
             if value >= MarkdownFontSizeSettings.minimumPointSize,
                value <= MarkdownFontSizeSettings.maximumPointSize {

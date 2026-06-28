@@ -118,94 +118,36 @@ enum TerminalTextBoxInputSettings {
     static let defaultMaxLines = 10
     static let minimumMaxLines = 1
     static let maximumMaxLines = 20
-
-    static func showOnNewTerminals(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: showOnNewTerminalsKey) == nil {
-            return defaultShowOnNewTerminals
-        }
-        return defaults.bool(forKey: showOnNewTerminalsKey)
-    }
-
-    static func focusOnNewTerminals(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: focusOnNewTerminalsKey) == nil {
-            return defaultFocusOnNewTerminals
-        }
-        return defaults.bool(forKey: focusOnNewTerminalsKey)
-    }
-
-    static func resolvedMaxLines(_ value: Int) -> Int {
-        min(max(value, minimumMaxLines), maximumMaxLines)
-    }
-
-    static func maxLines(defaults: UserDefaults = .standard) -> Int {
-        guard let value = defaults.object(forKey: maxLinesKey) as? Int else {
-            return defaultMaxLines
-        }
-        return resolvedMaxLines(value)
-    }
+    static func showOnNewTerminals(defaults: UserDefaults = .standard) -> Bool { defaults.object(forKey: showOnNewTerminalsKey) == nil ? defaultShowOnNewTerminals : defaults.bool(forKey: showOnNewTerminalsKey) }
+    static func focusOnNewTerminals(defaults: UserDefaults = .standard) -> Bool { defaults.object(forKey: focusOnNewTerminalsKey) == nil ? defaultFocusOnNewTerminals : defaults.bool(forKey: focusOnNewTerminalsKey) }
+    static func resolvedMaxLines(_ value: Int) -> Int { min(max(value, minimumMaxLines), maximumMaxLines) }
+    static func maxLines(defaults: UserDefaults = .standard) -> Int { (defaults.object(forKey: maxLinesKey) as? Int).map(resolvedMaxLines) ?? defaultMaxLines }
 }
 
 enum TerminalCopyOnSelectSettings {
     static let copyOnSelectKey = "terminal.copyOnSelect"
     static let defaultCopyOnSelect = false
     static let didChangeNotification = Notification.Name("cmux.terminalCopyOnSelectSettingsDidChange")
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        storedValue(defaults: defaults) ?? defaultCopyOnSelect
-    }
-
-    static func storedValue(defaults: UserDefaults = .standard) -> Bool? {
-        defaults.object(forKey: copyOnSelectKey) as? Bool
-    }
-    /// Returns the Ghostty `copy-on-select` value; `emitsFalse: false` lets Ghostty config/defaults remain authoritative.
-    static func ghosttyCopyOnSelectValue(defaults: UserDefaults = .standard, emitsFalse: Bool = true) -> String? {
-        guard let enabled = storedValue(defaults: defaults) else { return nil }
-        return enabled ? "clipboard" : (emitsFalse ? "false" : nil)
-    }
-
-    static func ghosttyConfigContents(defaults: UserDefaults = .standard, emitsFalse: Bool = true) -> String? {
-        guard let value = ghosttyCopyOnSelectValue(defaults: defaults, emitsFalse: emitsFalse) else { return nil }
-        return "copy-on-select = \(value)"
-    }
-
-    static func setEnabled(
-        _ enabled: Bool,
-        defaults: UserDefaults = .standard,
-        notificationCenter: NotificationCenter = .default
-    ) {
-        let wasEnabled = isEnabled(defaults: defaults)
-        defaults.set(enabled, forKey: copyOnSelectKey)
-        if wasEnabled != enabled {
-            notifyDidChange(notificationCenter: notificationCenter)
-        }
-    }
-
-    @discardableResult
-    static func reset(
-        defaults: UserDefaults = .standard,
-        notificationCenter: NotificationCenter = .default
-    ) -> Bool {
-        let wasEnabled = isEnabled(defaults: defaults)
-        defaults.removeObject(forKey: copyOnSelectKey)
-        let didChange = wasEnabled != isEnabled(defaults: defaults)
-        if didChange {
-            notifyDidChange(notificationCenter: notificationCenter)
-        }
-        return didChange
-    }
-
-    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
-        notificationCenter.post(name: didChangeNotification, object: nil)
-    }
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool { storedValue(defaults: defaults) ?? defaultCopyOnSelect }
+    static func storedValue(defaults: UserDefaults = .standard) -> Bool? { defaults.object(forKey: copyOnSelectKey) as? Bool }
+    static func ghosttyCopyOnSelectValue(defaults: UserDefaults = .standard, emitsFalse: Bool = true) -> String? { guard let enabled = storedValue(defaults: defaults) else { return nil }; return enabled ? "clipboard" : (emitsFalse ? "false" : nil) }
+    static func ghosttyConfigContents(defaults: UserDefaults = .standard, emitsFalse: Bool = true) -> String? { guard let value = ghosttyCopyOnSelectValue(defaults: defaults, emitsFalse: emitsFalse) else { return nil }; return "copy-on-select = \(value)" }
+    static func setEnabled(_ enabled: Bool, defaults: UserDefaults = .standard, notificationCenter: NotificationCenter = .default) { let wasEnabled = isEnabled(defaults: defaults); defaults.set(enabled, forKey: copyOnSelectKey); if wasEnabled != enabled { notifyDidChange(notificationCenter: notificationCenter) } }
+    @discardableResult static func reset(defaults: UserDefaults = .standard, notificationCenter: NotificationCenter = .default) -> Bool { let wasEnabled = isEnabled(defaults: defaults); defaults.removeObject(forKey: copyOnSelectKey); let didChange = wasEnabled != isEnabled(defaults: defaults); if didChange { notifyDidChange(notificationCenter: notificationCenter) }; return didChange }
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) { notificationCenter.post(name: didChangeNotification, object: nil) }
 }
 
 enum TerminalManagedGhosttySettings {
-    static func ghosttyConfigContents(defaults: UserDefaults = .standard, emitsCopyOnSelectFalse: Bool = true) -> String? {
-        let lines = [
-            TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults, emitsFalse: emitsCopyOnSelectFalse),
-        ].compactMap { $0 }
-        guard !lines.isEmpty else { return nil }
-        return lines.joined(separator: "\n")
+    static func ghosttyConfigContents(defaults: UserDefaults = .standard, emitsCopyOnSelectFalse: Bool = true) -> String? { let lines = [TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults, emitsFalse: emitsCopyOnSelectFalse)].compactMap { $0 }; return lines.isEmpty ? nil : lines.joined(separator: "\n") }
+}
+
+enum TmuxPaneNavigationSettings {
+    static let enabledKey = "terminal.tmuxAwarePaneNavigation"
+    static let defaultEnabled = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: enabledKey) != nil else { return defaultEnabled }
+        return defaults.bool(forKey: enabledKey)
     }
 }
 

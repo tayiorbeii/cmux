@@ -1852,6 +1852,8 @@ class TerminalController {
         // ControlCommandCoordinator (create_for_caller keeps its app-side resolver).
         case "notification.create_for_caller":
             return v2Result(id: id, self.v2NotificationCreateForCaller(params: params))
+        case "status.set_for_caller", "set_status_for_caller":
+            return v2Result(id: id, self.v2StatusSetForCaller(params: params))
 
         // App focus (app.focus_override.set/app.simulate_active) handled by ControlCommandCoordinator.
 
@@ -2087,6 +2089,8 @@ class TerminalController {
             "notification.mark_read",
             "notification.open",
             "notification.jump_to_unread",
+            "status.set_for_caller",
+            "set_status_for_caller",
             "app.focus_override.set",
             "app.simulate_active",
             "file.open",
@@ -2813,7 +2817,13 @@ class TerminalController {
                 "priority": entry.priority,
                 "format": entry.format.rawValue,
                 "visible": true,
-                "pid": v2OrNull(pid)
+                "pid": v2OrNull(pid),
+                "tmux_pane_id": v2OrNull(entry.tmuxMetadata?.paneId),
+                "tmux_pane_tty": v2OrNull(entry.tmuxMetadata?.paneTTY),
+                "tmux_session": v2OrNull(entry.tmuxMetadata?.session),
+                "tmux_window": v2OrNull(entry.tmuxMetadata?.window),
+                "tmux_pane": v2OrNull(entry.tmuxMetadata?.pane),
+                "tmux_command": v2OrNull(entry.tmuxMetadata?.command)
             ])
             seenKeys.insert(entry.key)
         }
