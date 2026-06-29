@@ -4,6 +4,10 @@ All notable changes to cmux are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Tmux Handoff: detect a coding agent in a focused pane, create a named tmux session at its working directory, fork (default) or resume the conversation, and print an `ssh -t tmux attach` line so it can be remoted into from another machine. Accessible via `cmux handoff` CLI, Command Palette ("Tmux Handoff"), Window menu + bindable keyboard shortcut (unbound by default), and the `cmux.remoteHandoff` custom-command builtin.
+
 ### Fixed
 
 - Fix keyboard accessibility for sidebar and titlebar controls — the toggle sidebar, notifications, new workspace, and help buttons are now reachable via Full Keyboard Access Tab navigation
