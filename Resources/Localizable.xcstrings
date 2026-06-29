@@ -2,6 +2,278 @@
   "sourceLanguage": "en",
   "version": "1.0",
   "strings": {
+    "remote-handoff.cli.created": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Created tmux session \"%@\"."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmuxセッション \"%@\" を作成しました。"
+          }
+        }
+      }
+    },
+    "remote-handoff.cli.copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(ssh line copied to clipboard)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（ssh接続行をクリップボードにコピーしました）"
+          }
+        }
+      }
+    },
+    "remote-handoff.error.no-agent-detected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No running coding agent was detected in the targeted pane."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対象ペインで実行中のコーディングエージェントが検出されませんでした。"
+          }
+        }
+      }
+    },
+    "remote-handoff.error.session-name-invalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid tmux session name: %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効なtmuxセッション名：%@。"
+          }
+        }
+      }
+    },
+    "remote-handoff.error.startup-input-unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The detected agent could not produce a resume command."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検出されたエージェントの再開コマンドを生成できませんでした。"
+          }
+        }
+      }
+    },
+    "remote-handoff.error.tmux-failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux failed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmuxの実行に失敗しました。"
+          }
+        }
+      }
+    },
+    "remote-handoff.error.tmux-not-found": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux was not found. Install tmux to use tmux handoff."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmuxが見つかりません。Tmuxハンドオフを使用するにはtmuxをインストールしてください。"
+          }
+        }
+      }
+    },
+    "remote-handoff.error.missing-workspace-id": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote-handoff.run requires a workspace_id."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote-handoff.runにはworkspace_idが必要です。"
+          }
+        }
+      }
+    },
+    "remote-handoff.error.missing-surface-id": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote-handoff.run requires a surface_id."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote-handoff.runにはsurface_idが必要です。"
+          }
+        }
+      }
+    },
+    "remote-handoff.error.no-focused-pane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No focused pane to hand off."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ハンドオフ可能なペインがフォーカスされていません。"
+          }
+        }
+      }
+    },
+    "remote-handoff.error.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tmux handoff failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tmuxハンドオフに失敗しました"
+          }
+        }
+      }
+    },
+    "remote-handoff.success.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tmux handoff ready"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tmuxハンドオフの準備ができました"
+          }
+        }
+      }
+    },
+    "remote-handoff.success.copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attach line copied to clipboard:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アタッチコマンドをクリップボードにコピーしました:"
+          }
+        }
+      }
+    },
+    "remote-handoff.common.ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
+    "command.remoteHandoff.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hand off this agent to a tmux session over ssh"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントをSSH経由でtmuxセッションに引き継ぎます"
+          }
+        }
+      }
+    },
+    "command.remoteHandoff.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tmux Handoff"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tmuxハンドオフ"
+          }
+        }
+      }
+    },
     "cli.mobile.setFont.applied": {
       "extractionState": "manual",
       "localizations": {
@@ -214322,6 +214594,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "上のペインにフォーカス (tmux 連動)"
+          }
+        }
+      }
+    },
+    "shortcut.remoteHandoff.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tmux Handoff…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tmuxハンドオフ…"
+          }
+        }
+      }
+    },
+    "menu.window.remoteHandoff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tmux Handoff…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tmuxハンドオフ…"
           }
         }
       }

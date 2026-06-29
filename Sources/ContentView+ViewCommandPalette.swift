@@ -26,6 +26,12 @@ extension ContentView {
                 subtitle: constant(String(localized: "command.sleepyMode.subtitle", defaultValue: "View")),
                 keywords: ["sleepy", "screensaver", "caffeinate", "keep awake", "do not sleep", "lock", "pets", "night"]
             ),
+            CommandPaletteCommandContribution(
+                commandId: "palette.remoteHandoff",
+                title: constant(String(localized: "command.remoteHandoff.title", defaultValue: "Remote Handoff")),
+                subtitle: constant(String(localized: "command.remoteHandoff.subtitle", defaultValue: "Remote")),
+                keywords: ["remote", "handoff", "ssh", "tmux", "agent", "resume", "fork", "session"]
+            ),
         ]
     }
 
@@ -38,6 +44,15 @@ extension ContentView {
         }
         registry.register(commandId: "palette.sleepyMode") {
             SleepyModeController.shared.activate()
+        }
+        registry.register(commandId: "palette.remoteHandoff") {
+            // The registry handler runs on the main actor (same as the
+            // triggerFlash handler above); RemoteHandoffInApp.perform runs the
+            // shared RemoteHandoffRunner off-main and surfaces the ssh line on
+            // the main actor.
+            Task { @MainActor in
+                await RemoteHandoffInApp.perform(tabManager: tabManager)
+            }
         }
     }
 }

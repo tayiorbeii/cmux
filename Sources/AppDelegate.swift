@@ -15217,6 +15217,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
                 if didSplit { onExecuted?() }
                 return didSplit
+            case .remoteHandoff:
+                let handoffTabManager = context.tabManager
+                Task { @MainActor in
+                    await RemoteHandoffInApp.perform(tabManager: handoffTabManager)
+                }
+                onExecuted?()
+                return true
             }
         case .command, .agent, .workspaceCommand:
             guard let cmuxConfigStore = context.cmuxConfigStore else {

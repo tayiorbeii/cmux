@@ -885,6 +885,13 @@ struct cmuxApp: App {
             Button(String(localized: "menu.window.taskManager", defaultValue: "Task Manager...")) {
                 TaskManagerWindowController.shared.show()
             }
+
+            splitCommandButton(title: String(localized: "menu.window.remoteHandoff", defaultValue: "Remote Handoff…"), shortcut: menuShortcut(for: .remoteHandoff)) {
+                let manager = activeTabManager
+                Task { @MainActor in
+                    await RemoteHandoffInApp.perform(tabManager: manager)
+                }
+            }
         }
         helpCommands
         historyCommands

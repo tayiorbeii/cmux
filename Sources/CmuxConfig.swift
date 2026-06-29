@@ -1569,6 +1569,9 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
         case .splitDown:
             title = String(localized: "command.terminalSplitDown.title", defaultValue: "Split Down")
             keywords = ["terminal", "split", "down"]
+        case .remoteHandoff:
+            title = String(localized: "command.remoteHandoff.title", defaultValue: "Tmux Handoff")
+            keywords = ["remote", "handoff", "ssh", "tmux", "agent"]
         }
 
         return CmuxResolvedConfigAction(

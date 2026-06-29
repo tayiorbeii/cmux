@@ -12662,6 +12662,12 @@ extension Workspace: BonsplitDelegate {
                     preferredWindow: presentingWindow,
                     debugSource: "surfaceTabBar.cloudVM"
                 )
+            case .remoteHandoff:
+                if let tabManager = owningTabManager {
+                    Task { @MainActor in
+                        await RemoteHandoffInApp.perform(tabManager: tabManager)
+                    }
+                }
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }

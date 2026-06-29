@@ -1149,6 +1149,19 @@ class TerminalController {
             return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
         case let method where method.hasPrefix("remotes."):
             return socketWorkerRemotesResponse(method: method, id: request.id, params: request.params)
+        case "remote-handoff.run":
+            // Blocking (tmux spawn) + awaiting (agent-index load): runs on the
+            // worker lane, not the @MainActor coordinator seam. UUID/handle-ref
+            // resolution happens here on main; the async body runs off-main.
+            let handoffWorkspaceID = v2ResolveHandoffTargetID(request.params["workspace_id"])
+            let handoffPanelID = v2ResolveHandoffTargetID(request.params["surface_id"])
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2RemoteHandoffRun(
+                    workspaceID: handoffWorkspaceID,
+                    panelID: handoffPanelID,
+                    params: request.params
+                )
+            }
         default:
             return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
         }
@@ -1953,6 +1966,7 @@ class TerminalController {
             "sidebar.custom.open",
             "system.top",
             "system.memory",
+            "remote-handoff.run",
             "mobile.host.status",
             "mobile.attach_ticket.create",
             "mobile.terminal.set_font",

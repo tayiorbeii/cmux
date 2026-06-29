@@ -4638,6 +4638,9 @@ struct CMUXCLI {
                 print((payload["text"] as? String) ?? "")
             }
 
+        case "handoff":
+            try runHandoff(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, windowOverride: windowId)
+
         case "send":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (sfArg, rem1) = parseOption(rem0, name: "--surface")
@@ -5419,6 +5422,7 @@ struct CMUXCLI {
         "focus-webview",
         "focus-window",
         "get-url",
+        "handoff",
         "help",
         "hooks",
         "identify",
@@ -14945,6 +14949,40 @@ struct CMUXCLI {
               cmux new-workspace --cwd . --command "npm test"
               cmux new-workspace --name "Dev" --layout '{"direction":"horizontal","split":0.5,"children":[{"pane":{"surfaces":[{"type":"terminal","command":"vim"}]}},{"pane":{"surfaces":[{"type":"terminal","command":"npm run start"}]}}]}'
             """
+        case "handoff":
+            return """
+            Usage: cmux handoff [--mode fork|handoff] [--name <tmux-session>]
+                                [--host <ssh-host>] [--workspace <id|ref|index>]
+                                [--surface <id|ref|index>] [--window <id|ref|index>]
+                                [--no-copy] [--json]
+
+            Detect the coding agent running in a pane, create a named tmux
+            session rooted at that conversation's working directory, resume (or
+            fork) the conversation inside it, and print an `ssh -t tmux attach`
+            line so it can be remoted into from another machine.
+
+            Targets the focused pane by default; pass --workspace and --surface
+            (or --panel) to target a specific pane.
+
+            Flags:
+              --mode fork|handoff   fork = branch a new session (default, leaves
+                                    the original untouched); handoff = resume in
+                                    place
+              --name <session>      tmux session name (default: <agent>-<session-id>)
+              --host <ssh-host>     Host printed in the ssh attach line
+                                    (default: <host> placeholder)
+              --workspace <id|ref|index> Target workspace (default: focused)
+              --surface <id|ref|index>   Target pane (default: focused)
+              --panel <id|ref|index>     Alias for --surface
+              --window <id|ref|index>    Target window (default: caller/current)
+              --no-copy             Do not copy the ssh line to the clipboard
+              --json                Emit machine-readable JSON
+
+            Example:
+              cmux handoff
+              cmux handoff --mode handoff --host desktop.local
+              cmux handoff --name myagent --workspace workspace:1 --surface surface:2
+            """
         case "list-workspaces":
             return """
             Usage: cmux list-workspaces [--window <id|ref|index>]
@@ -16569,6 +16607,123 @@ struct CMUXCLI {
         let surfaceHandle = try normalizeSurfaceHandle(env["CMUX_SURFACE_ID"], client: client, workspaceHandle: workspaceHandle)
         if let surfaceHandle {
             params["surface_id"] = surfaceHandle
+        }
+    }
+
+    private func runHandoff(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        windowOverride: String?
+    ) throws {
+        let noCopy = commandArgs.contains("--no-copy")
+        let (modeArg, afterMode) = parseOption(commandArgs, name: "--mode")
+        let (nameArg, afterName) = parseOption(afterMode, name: "--name")
+        let (hostArg, afterHost) = parseOption(afterName, name: "--host")
+        let (wsArg, afterWs) = parseOption(afterHost, name: "--workspace")
+        let (surfaceArg, afterSurface) = parseOption(afterWs, name: "--surface")
+        let (panelArg, afterPanel) = parseOption(afterSurface, name: "--panel")
+        let (windowOpt, _) = parseOption(afterPanel, name: "--window")
+
+        // The CLI is a socket client (compiled into both the `cmux` app target and
+        // the standalone `cmux-cli` target, which cannot link the app's `Sources/`).
+        // All handoff logic lives app-side behind the `remote-handoff.run` socket
+        // method (shared `RemoteHandoffRunner` action); this verb only resolves the
+        // target pane + flags and prints the result. See plans-remote-handoff.md.
+        let modeValue = (modeArg ?? "fork").lowercased()
+        guard modeValue.isEmpty || modeValue == "fork" || modeValue == "handoff" || modeValue == "resume" else {
+            throw CLIError(message: "handoff: invalid --mode '\(modeValue)' (expected fork|handoff)")
+        }
+        let mode = (modeValue == "handoff" || modeValue == "resume") ? "handoff" : "fork"
+
+        let windowRaw = windowOpt ?? windowOverride
+        let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
+
+        var workspaceIdString: String?
+        var panelIdString: String?
+        let effectiveSurfaceArg = surfaceArg ?? panelArg
+
+        // Resolve the focused identity once (used whenever a handle isn't given
+        // explicitly). `system.identify` returns the focused workspace + surface.
+        var focusedIdentity: [String: Any]?
+        if wsArg == nil || effectiveSurfaceArg == nil {
+            var identifyParams: [String: Any] = [:]
+            if let windowHandle { identifyParams["window_id"] = windowHandle }
+            let identify = try client.sendV2(method: "system.identify", params: identifyParams)
+            focusedIdentity = identify["focused"] as? [String: Any] ?? [:]
+        }
+
+        if let wsArg {
+            workspaceIdString = try normalizeWorkspaceHandle(wsArg, client: client, windowHandle: windowHandle)
+        } else {
+            workspaceIdString = (focusedIdentity?["workspace_id"] as? String) ?? (focusedIdentity?["workspace_ref"] as? String)
+        }
+
+        if let effectiveSurfaceArg {
+            panelIdString = try normalizeSurfaceHandle(
+                effectiveSurfaceArg,
+                client: client,
+                workspaceHandle: workspaceIdString,
+                windowHandle: windowHandle
+            )
+        } else {
+            panelIdString = (focusedIdentity?["surface_id"] as? String) ?? (focusedIdentity?["surface_ref"] as? String)
+        }
+
+        guard let workspaceIdString else {
+            throw CLIError(message: "handoff: could not resolve a workspace for the targeted pane. Pass --workspace and --surface to target a pane explicitly.")
+        }
+        guard let panelIdString else {
+            throw CLIError(message: "handoff: could not resolve a focused pane. Focus a pane or pass --workspace and --surface.")
+        }
+
+        var params: [String: Any] = [
+            "workspace_id": workspaceIdString,
+            "surface_id": panelIdString,
+            "mode": mode,
+        ]
+        if let nameArg, !nameArg.isEmpty { params["session_name"] = nameArg }
+        if let hostArg, !hostArg.isEmpty { params["ssh_host"] = hostArg }
+
+        let payload = try client.sendV2(method: "remote-handoff.run", params: params)
+
+        if jsonOutput {
+            print(jsonString(payload))
+            return
+        }
+
+        if let error = (payload["error"] as? String), !error.isEmpty {
+            throw CLIError(message: "handoff: \(error)")
+        }
+        let sessionName = (payload["session_name"] as? String) ?? ""
+        let sshCommand = (payload["ssh_command"] as? String) ?? ""
+
+        if !sessionName.isEmpty {
+            print(String(localized: "remote-handoff.cli.created", defaultValue: "Created tmux session \"\(sessionName)\"."))
+        }
+        if !sshCommand.isEmpty {
+            print(sshCommand)
+            if !noCopy {
+                copyToPasteboard(sshCommand)
+                print(String(localized: "remote-handoff.cli.copied", defaultValue: "(ssh line copied to clipboard)"))
+            }
+        }
+    }
+
+    /// Best-effort clipboard copy via `pbcopy`. Never throws; clipboard failure
+    /// is non-fatal for a handoff command.
+    private func copyToPasteboard(_ text: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pbcopy")
+        let inputPipe = Pipe()
+        process.standardInput = inputPipe
+        do {
+            try process.run()
+            inputPipe.fileHandleForWriting.write(text.data(using: .utf8) ?? Data())
+            try? inputPipe.fileHandleForWriting.close()
+            process.waitUntilExit()
+        } catch {
+            // Clipboard is best-effort; ignore failures.
         }
     }
 

@@ -72,6 +72,12 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "mobile.terminal.set_font",
         "system.top",
         "system.memory",
+        // `remote-handoff.run` spawns tmux and awaits the restorable-agent
+        // index, so it runs on the socket-worker thread (off the main actor)
+        // like the other blocking verbs. Without this entry the dispatcher
+        // routes it to the main-actor switch, which lacks the case, and the
+        // control socket returns method_not_found.
+        "remote-handoff.run",
         // `workspace.env` is a read that resolves a workspace and copies its
         // env dictionary behind a `v2MainSync` hop, so it runs on the worker
         // lane like the other workspace reads below.

@@ -8,6 +8,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
     case newBrowser = "cmux.newBrowser"
     case splitRight = "cmux.splitRight"
     case splitDown = "cmux.splitDown"
+    case remoteHandoff = "cmux.remoteHandoff"
 
     init?(configID: String) {
         switch configID {
@@ -25,6 +26,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             self = .splitRight
         case "cmux.splitDown", "splitDown":
             self = .splitDown
+        case "cmux.remoteHandoff", "remoteHandoff", "cmux.tmuxHandoff", "tmuxHandoff":
+            self = .remoteHandoff
         default:
             return nil
         }
@@ -48,6 +51,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return "square.split.2x1"
         case .splitDown:
             return "square.split.1x2"
+        case .remoteHandoff:
+            return "arrow.up.right.square"
         }
     }
 
@@ -63,6 +68,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return .splitRight
         case .splitDown:
             return .splitDown
+        case .remoteHandoff:
+            return nil
         }
     }
 }
