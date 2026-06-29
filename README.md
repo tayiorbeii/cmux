@@ -1,9 +1,11 @@
 <h1 align="center">cmux</h1>
 <p align="center">A Ghostty-based macOS terminal with vertical tabs and notifications for AI coding agents</p>
 
+<p align="center"><strong>This is <a href="https://github.com/tayiorbeii">tayiorbeii</a>'s fork</strong> of <a href="https://github.com/manaflow-ai/cmux">manaflow-ai/cmux</a> with added features: Tmux Handoff, keyboard accessibility improvements, tmux movement controls, and notification passthrough integration. Build from source:</p>
+
 <p align="center">
-  <a href="https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg">
-    <img src="./docs/assets/macos-badge.png" alt="Download cmux for macOS" width="180" />
+  <a href="#build-from-source">
+    <img src="./docs/assets/macos-badge.png" alt="Build cmux from source" width="180" />
   </a>
 </p>
 
