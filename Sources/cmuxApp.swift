@@ -886,7 +886,7 @@ struct cmuxApp: App {
                 TaskManagerWindowController.shared.show()
             }
 
-            splitCommandButton(title: String(localized: "menu.window.remoteHandoff", defaultValue: "Remote Handoff…"), shortcut: menuShortcut(for: .remoteHandoff)) {
+            splitCommandButton(title: String(localized: "menu.window.remoteHandoff", defaultValue: "Tmux Handoff…"), shortcut: menuShortcut(for: .remoteHandoff)) {
                 let manager = activeTabManager
                 Task { @MainActor in
                     await RemoteHandoffInApp.perform(tabManager: manager)

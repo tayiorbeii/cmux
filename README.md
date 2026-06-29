@@ -120,6 +120,19 @@ brew upgrade --cask cmux
 
 On first launch, macOS may ask you to confirm opening an app from an identified developer. Click **Open** to proceed.
 
+## Build from Source
+
+To build this fork locally:
+
+```bash
+git clone git@github.com:tayiorbeii/cmux.git
+cd cmux
+./scripts/setup.sh
+./scripts/reload.sh --tag local-fork
+```
+
+The reload script prints the built `.app` path. Open that tagged app to run this fork side-by-side with other cmux builds.
+
 ## Why cmux?
 
 I run a lot of Claude Code and Codex sessions in parallel. I was using Ghostty with a bunch of split panes, and relying on native macOS notifications to know when an agent needed me. But Claude Code's notification body is always just "Claude is waiting for your input" with no context, and with enough tabs open I couldn't even read the titles anymore.

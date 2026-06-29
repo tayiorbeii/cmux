@@ -79,7 +79,7 @@ Aliases `cmux.tmuxHandoff` and `tmuxHandoff` are also accepted.
 
 ## Session name rules
 
-- Default: `<agentID>-<first6 of sessionId>` (e.g. `pi-a1b2c3`).
+- Default: `<agentID>-<first8 of sessionId>` (e.g. `pi-a1b2c3d4`).
 - Custom names must not contain `.` or `:` (tmux restriction).
 - Empty, whitespace-only, or invalid names are rejected.
 

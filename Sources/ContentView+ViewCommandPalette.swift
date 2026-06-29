@@ -28,8 +28,8 @@ extension ContentView {
             ),
             CommandPaletteCommandContribution(
                 commandId: "palette.remoteHandoff",
-                title: constant(String(localized: "command.remoteHandoff.title", defaultValue: "Remote Handoff")),
-                subtitle: constant(String(localized: "command.remoteHandoff.subtitle", defaultValue: "Remote")),
+                title: constant(String(localized: "command.remoteHandoff.title", defaultValue: "Tmux Handoff")),
+                subtitle: constant(String(localized: "command.remoteHandoff.subtitle", defaultValue: "Hand off this agent to a tmux session over ssh")),
                 keywords: ["remote", "handoff", "ssh", "tmux", "agent", "resume", "fork", "session"]
             ),
         ]

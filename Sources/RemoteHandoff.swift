@@ -68,7 +68,7 @@ enum RemoteHandoffError: Error, CustomStringConvertible {
             let summary = String(localized: "remote-handoff.error.tmux-failed", defaultValue: "tmux failed.")
             return detail.isEmpty ? summary : "\(summary) \(detail)"
         case .sessionNameInvalid(let name):
-            return String(localized: "remote-handoff.error.session-name-invalid", defaultValue: "Invalid tmux session name: \(name)")
+            return String(localized: "remote-handoff.error.session-name-invalid", defaultValue: "Invalid tmux session name: \(name).")
         }
     }
 
