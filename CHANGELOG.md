@@ -6,7 +6,7 @@ All notable changes to cmux are documented here.
 
 ### Added
 
-- Tmux Handoff: detect a coding agent in a focused pane, create a named tmux session at its working directory, fork (default) or resume the conversation, and print an `ssh -t tmux attach` line so it can be remoted into from another machine. Accessible via `cmux handoff` CLI, Command Palette ("Tmux Handoff"), Window menu + bindable keyboard shortcut (unbound by default), and the `cmux.remoteHandoff` custom-command builtin.
+- Tmux Handoff: relaunch any focused or targeted local terminal pane into `tmux new-session -A` without requiring coding-agent detection. Existing `cmux.remoteHandoff`/`remoteHandoff` and `cmux.tmuxHandoff`/`tmuxHandoff` aliases remain supported; `--host` can still print an explicit SSH attach line.
 
 ### Fixed
 

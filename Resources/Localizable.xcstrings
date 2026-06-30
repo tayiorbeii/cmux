@@ -8,13 +8,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Created tmux session \"%@\"."
+            "value": "Relaunched pane in tmux session \"%@\"."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "tmuxセッション \"%@\" を作成しました。"
+            "value": "ペインをtmuxセッション \"%@\" で再起動しました。"
           }
         }
       }
@@ -25,13 +25,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "(ssh line copied to clipboard)"
+            "value": "(ssh attach line copied to clipboard)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "（ssh接続行をクリップボードにコピーしました）"
+            "value": "（sshアタッチ行をクリップボードにコピーしました）"
           }
         }
       }
@@ -212,13 +212,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Attach line copied to clipboard:"
+            "value": "SSH attach line copied to clipboard:"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アタッチコマンドをクリップボードにコピーしました:"
+            "value": "SSHアタッチ行をクリップボードにコピーしました:"
           }
         }
       }
@@ -246,13 +246,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hand off this agent to a tmux session over ssh"
+            "value": "Relaunch this terminal pane in local tmux"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントをSSH経由でtmuxセッションに引き継ぎます"
+            "value": "このターミナルペインをローカルtmuxで再起動します"
           }
         }
       }
@@ -214628,6 +214628,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tmuxハンドオフ…"
+          }
+        }
+      }
+    },
+    "remote-handoff.success.local": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relaunched the targeted pane in local tmux session \"%@\"."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対象ペインをローカルtmuxセッション \"%@\" で再起動しました。"
+          }
+        }
+      }
+    },
+    "remote-handoff.error.surface-not-terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The targeted pane is not a terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対象ペインはターミナルではありません。"
+          }
+        }
+      }
+    },
+    "remote-handoff.error.respawn-failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not relaunch the targeted pane in tmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対象ペインをtmuxで再起動できませんでした。"
+          }
+        }
+      }
+    },
+    "remote-handoff.error.surface-not-found": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The targeted pane could not be found."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対象ペインが見つかりませんでした。"
+          }
+        }
+      }
+    },
+    "remote-handoff.error.workspace-not-found": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The targeted workspace could not be found."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対象ワークスペースが見つかりませんでした。"
           }
         }
       }

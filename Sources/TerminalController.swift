@@ -1150,9 +1150,9 @@ class TerminalController {
         case let method where method.hasPrefix("remotes."):
             return socketWorkerRemotesResponse(method: method, id: request.id, params: request.params)
         case "remote-handoff.run":
-            // Blocking (tmux spawn) + awaiting (agent-index load): runs on the
-            // worker lane, not the @MainActor coordinator seam. UUID/handle-ref
-            // resolution happens here on main; the async body runs off-main.
+            // Compatibility socket method for tmux handoff. UUID/handle-ref
+            // resolution happens here on main; validation runs off-main, then
+            // the final local terminal respawn hops back to the main actor.
             let handoffWorkspaceID = v2ResolveHandoffTargetID(request.params["workspace_id"])
             let handoffPanelID = v2ResolveHandoffTargetID(request.params["surface_id"])
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {

@@ -29,8 +29,8 @@ extension ContentView {
             CommandPaletteCommandContribution(
                 commandId: "palette.remoteHandoff",
                 title: constant(String(localized: "command.remoteHandoff.title", defaultValue: "Tmux Handoff")),
-                subtitle: constant(String(localized: "command.remoteHandoff.subtitle", defaultValue: "Hand off this agent to a tmux session over ssh")),
-                keywords: ["remote", "handoff", "ssh", "tmux", "agent", "resume", "fork", "session"]
+                subtitle: constant(String(localized: "command.remoteHandoff.subtitle", defaultValue: "Relaunch this terminal pane in local tmux")),
+                keywords: ["remote", "handoff", "ssh", "tmux", "terminal", "pane", "session"]
             ),
         ]
     }
@@ -48,8 +48,8 @@ extension ContentView {
         registry.register(commandId: "palette.remoteHandoff") {
             // The registry handler runs on the main actor (same as the
             // triggerFlash handler above); RemoteHandoffInApp.perform runs the
-            // shared RemoteHandoffRunner off-main and surfaces the ssh line on
-            // the main actor.
+            // shared RemoteHandoffRunner off-main, then respawns the targeted
+            // terminal pane on the main actor.
             Task { @MainActor in
                 await RemoteHandoffInApp.perform(tabManager: tabManager)
             }

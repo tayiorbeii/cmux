@@ -2,52 +2,61 @@ import Foundation
 
 // MARK: - Remote handoff public surface
 
-/// Whether a remote handoff continues the original conversation in place or
-/// branches a fresh copy, leaving the original untouched.
+/// Compatibility mode accepted by the public tmux-handoff surface.
 ///
-/// `fork` is the safe default: the agent's original session is not modified.
-/// `handoff` resumes the original session in place inside the new tmux pane.
+/// The modern flow always relaunches the targeted local terminal surface into a
+/// tmux client. `fork`/`handoff` are still parsed so existing configs and CLI
+/// invocations keep working, but they no longer change local tmux launch
+/// behavior.
 enum RemoteHandoffMode: String, Sendable, CaseIterable {
     case fork
     case handoff
 }
 
-/// The resolved inputs to a remote handoff.
+/// The resolved inputs to a tmux handoff.
 struct RemoteHandoffRequest: Sendable {
-    /// Workspace UUID of the pane whose agent should be handed off.
+    /// Workspace UUID of the terminal pane to relaunch.
     var workspaceId: UUID
-    /// Panel UUID of the pane. In cmux this is identical to the surface UUID
-    /// (`CMUX_PANEL_ID` is exported equal to `CMUX_SURFACE_ID`).
+    /// Panel UUID of the terminal pane. In cmux this is identical to the surface
+    /// UUID (`CMUX_PANEL_ID` is exported equal to `CMUX_SURFACE_ID`).
     var panelId: UUID
-    /// `.fork` (default) branches the conversation; `.handoff` resumes in place.
+    /// Compatibility-only mode flag. Accepted for old callers; ignored by the
+    /// local tmux relaunch flow.
     var mode: RemoteHandoffMode = .fork
-    /// Optional explicit tmux session name. When `nil` a name is derived from
-    /// the detected agent and session id.
+    /// Optional explicit tmux session name. When `nil` a stable local name is
+    /// derived from the workspace and panel IDs.
     var sessionName: String?
-    /// Host printed in the `ssh` attach line. Defaults to a `<host>` placeholder
-    /// when the caller does not know the remote address.
+    /// Optional working directory for the relaunched terminal. When `nil`, the
+    /// user's home directory is used.
+    var workingDirectory: String?
+    /// Optional host for the compatibility SSH attach line. No SSH command is
+    /// produced unless this is explicitly provided.
     var sshHost: String?
 }
 
-/// The outcome of a successful remote handoff.
+/// The outcome of a successful tmux handoff preparation.
 struct RemoteHandoffResult: Sendable, Codable {
-    /// The tmux session name that was created.
+    /// The tmux session name that the local pane will attach to/create.
     var sessionName: String
-    /// Working directory the tmux session was rooted at.
+    /// Working directory the relaunched terminal is rooted at.
     var workingDirectory: String
-    /// Human-readable name of the detected agent.
+    /// Compatibility field for older socket clients. The local flow is tmux-only.
     var agentDisplayName: String
-    /// Startup input fed to the new pane (resume/fork command or launcher path).
+    /// Compatibility field for older socket clients. Mirrors ``localCommand``.
     var startupInput: String
-    /// The `ssh … tmux attach` line to run from a remote machine.
-    var sshCommand: String
+    /// The local command used to relaunch the targeted terminal pane.
+    var localCommand: String
+    /// Optional `ssh … tmux attach` line, present only when the caller explicitly
+    /// passed a host.
+    var sshCommand: String?
 }
 
-/// Reasons a remote handoff can fail. Descriptions are user-facing and localized.
+/// Reasons a tmux handoff can fail. Descriptions are user-facing and localized.
 enum RemoteHandoffError: Error, CustomStringConvertible {
-    /// No restorable agent session was found for the targeted pane.
+    /// Legacy error kept for wire compatibility with the old snapshot-driven
+    /// flow. The local flow does not require an agent snapshot.
     case noAgentDetected
-    /// An agent was detected but no resume/fork startup input could be produced.
+    /// Legacy error kept for wire compatibility with the old snapshot-driven flow.
     case startupInputUnavailable
     /// `tmux` is not installed or not on the search PATH.
     case tmuxNotFound
@@ -87,67 +96,17 @@ enum RemoteHandoffError: Error, CustomStringConvertible {
 
 // MARK: - Seams
 
-/// Read-only view over the restorable-agent index sufficient for handoff.
-/// `RestorableAgentSessionIndex` conforms retroactively (same target).
-protocol RemoteHandoffIndexSnapshotting: Sendable {
-    func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot?
+/// Resolves the tmux executable. Split out so tests can avoid depending on the
+/// developer machine's PATH while production still validates tmux availability
+/// before replacing a pane.
+protocol TmuxExecutableResolving: Sendable {
+    func resolveExecutable() throws -> String
 }
 
-/// Loads the restorable-agent index. Exposed as both an async path (for the
-/// app's interactive entrypoints, which must not block the main actor) and a
-/// synchronous path (for the short-lived, non-interactive CLI process).
-protocol AgentSessionResolving: Sendable {
-    func loadIndexAsync() async -> any RemoteHandoffIndexSnapshotting
-    func loadIndexSync() -> any RemoteHandoffIndexSnapshotting
-}
-
-/// Creates and feeds the tmux session. Split out so tests can capture the
-/// exact `tmux` argv without spawning a real process.
-protocol TmuxSessionCreating: Sendable {
-    func createDetachedSession(name: String, workingDirectory: String) throws
-    func sendKeys(target: String, input: String) throws
-}
-
-/// Default `AgentSessionResolving` backed by the real vault-agent index.
-struct VaultAgentSessionResolver: AgentSessionResolving {
-    var homeDirectory: String
-    // FileManager is Apple-documented thread-safe; safe to capture in a Sendable value type.
-    nonisolated(unsafe) var fileManager: FileManager
-
-    init(homeDirectory: String = NSHomeDirectory(), fileManager: FileManager = .default) {
-        self.homeDirectory = homeDirectory
-        self.fileManager = fileManager
-    }
-
-    func loadIndexAsync() async -> any RemoteHandoffIndexSnapshotting {
-        await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots(
-            homeDirectory: homeDirectory,
-            fileManager: fileManager
-        )
-    }
-
-    func loadIndexSync() -> any RemoteHandoffIndexSnapshotting {
-        RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshotsSynchronously(
-            homeDirectory: homeDirectory,
-            fileManager: fileManager
-        )
-    }
-}
-
-extension RestorableAgentSessionIndex: RemoteHandoffIndexSnapshotting {}
-
-/// Default `TmuxSessionCreating` that spawns the real `tmux` binary.
-struct TmuxSessionController: TmuxSessionCreating {
-    func createDetachedSession(name: String, workingDirectory: String) throws {
-        try Self.runTmux(arguments: ["new-session", "-d", "-s", name, "-c", workingDirectory])
-    }
-
-    func sendKeys(target: String, input: String) throws {
-        // `tmux send-keys` types the input verbatim, then `Enter` submits it.
-        // A trailing newline in the startup input would be typed as a literal
-        // newline, so callers must strip it; we guard defensively here too.
-        let sanitized = input.trimmingCharacters(in: .newlines)
-        try Self.runTmux(arguments: ["send-keys", "-t", target, sanitized, "Enter"])
+/// Default resolver for the real `tmux` binary.
+struct TmuxSessionController: TmuxExecutableResolving {
+    func resolveExecutable() throws -> String {
+        try Self.resolveTmuxExecutable()
     }
 
     /// Runs `tmux` with the given argv, capturing stderr and throwing
@@ -199,106 +158,77 @@ struct TmuxSessionController: TmuxSessionCreating {
 
 // MARK: - Runner
 
-/// Shared remote-handoff action. The single mutation path invoked by every
+/// Shared tmux-handoff action. The single preparation path invoked by every
 /// entrypoint (CLI verb, command palette, keyboard shortcut, custom command).
 ///
-/// Target resolution (which pane is focused) is entrypoint-specific; the
-/// handoff logic itself lives only here.
+/// Target resolution and the actual pane respawn are app-state concerns. This
+/// runner validates the tmux/session inputs and returns the local command that
+/// the caller should use to replace the targeted terminal surface.
 struct RemoteHandoffRunner: Sendable {
     var request: RemoteHandoffRequest
-    var resolver: any AgentSessionResolving
-    var tmux: any TmuxSessionCreating
-    // FileManager is Apple-documented thread-safe; safe to capture in a Sendable value type.
-    nonisolated(unsafe) var fileManager: FileManager
-    var temporaryDirectory: URL
+    var tmux: any TmuxExecutableResolving
     var homeDirectory: String
 
     init(
         request: RemoteHandoffRequest,
-        resolver: any AgentSessionResolving = VaultAgentSessionResolver(),
-        tmux: any TmuxSessionCreating = TmuxSessionController(),
-        fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        tmux: any TmuxExecutableResolving = TmuxSessionController(),
         homeDirectory: String = NSHomeDirectory()
     ) {
         self.request = request
-        self.resolver = resolver
         self.tmux = tmux
-        self.fileManager = fileManager
-        self.temporaryDirectory = temporaryDirectory
         self.homeDirectory = homeDirectory
     }
 
-    /// Async entrypoint for in-app entrypoints (palette/shortcut). Uses the
-    /// async agent-index loader so the main actor is never blocked.
+    /// Async entrypoint retained for in-app/socket callers that already await
+    /// the shared action.
     func run() async throws -> RemoteHandoffResult {
-        let index = await resolver.loadIndexAsync()
-        return try buildResult(from: index)
+        try buildResult()
     }
 
-    /// Synchronous entrypoint for the short-lived, non-interactive CLI process.
-    /// Uses the synchronous agent-index loader (acceptable outside the app's
-    /// interactive main-actor paths).
+    /// Synchronous entrypoint for short-lived, non-interactive callers/tests.
     func runSynchronously() throws -> RemoteHandoffResult {
-        let index = resolver.loadIndexSync()
-        return try buildResult(from: index)
+        try buildResult()
     }
 
-    /// Snapshot → tmux session → ssh line. Shared by both entrypoints.
-    private func buildResult(from index: any RemoteHandoffIndexSnapshotting) throws -> RemoteHandoffResult {
-        guard let snapshot = index.snapshot(workspaceId: request.workspaceId, panelId: request.panelId) else {
-            throw RemoteHandoffError.noAgentDetected
-        }
-
-        let rawInput: String?
-        switch request.mode {
-        case .fork:
-            rawInput = snapshot.forkStartupInput(
-                fileManager: fileManager,
-                temporaryDirectory: temporaryDirectory
-            )
-        case .handoff:
-            rawInput = snapshot.resumeStartupInput(
-                fileManager: fileManager,
-                temporaryDirectory: temporaryDirectory
-            )
-        }
-        guard let input = rawInput?.trimmingCharacters(in: .newlines), !input.isEmpty else {
-            throw RemoteHandoffError.startupInputUnavailable
-        }
-
-        let workingDirectory = snapshot.workingDirectory
-            ?? snapshot.launchCommand?.workingDirectory
-            ?? homeDirectory
-
-        let sessionName = try Self.resolveSessionName(requested: request.sessionName, snapshot: snapshot)
-
-        try tmux.createDetachedSession(name: sessionName, workingDirectory: workingDirectory)
-        try tmux.sendKeys(target: sessionName, input: input)
+    /// Build the local tmux relaunch spec. This intentionally does not require
+    /// a restorable coding-agent snapshot and does not create a detached tmux
+    /// session ahead of time; the target pane itself runs `tmux new-session -A`.
+    private func buildResult() throws -> RemoteHandoffResult {
+        let executable = try tmux.resolveExecutable()
+        let workingDirectory = Self.resolveWorkingDirectory(
+            requested: request.workingDirectory,
+            homeDirectory: homeDirectory
+        )
+        let sessionName = try Self.resolveSessionName(
+            requested: request.sessionName,
+            workspaceId: request.workspaceId,
+            panelId: request.panelId
+        )
+        let localCommand = "exec \(Self.shellQuoted(executable)) new-session -A -s \(Self.shellQuoted(sessionName))"
 
         let sshHost = request.sshHost?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedHost = (sshHost?.isEmpty == false) ? sshHost! : "<host>"
-        let sshCommand = "ssh \(resolvedHost) -t tmux attach -t \(sessionName)"
+        let sshCommand = (sshHost?.isEmpty == false)
+            ? "ssh \(sshHost!) -t tmux attach -t \(sessionName)"
+            : nil
 
         return RemoteHandoffResult(
             sessionName: sessionName,
             workingDirectory: workingDirectory,
-            agentDisplayName: snapshot.agentDisplayName,
-            startupInput: input,
+            agentDisplayName: "tmux",
+            startupInput: localCommand,
+            localCommand: localCommand,
             sshCommand: sshCommand
         )
     }
 
     /// Derives and validates the tmux session name. tmux forbids `.` and `:`
     /// (target separators) and names are easier to type without spaces.
-    static func resolveSessionName(requested: String?, snapshot: SessionRestorableAgentSnapshot) throws -> String {
+    static func resolveSessionName(requested: String?, workspaceId: UUID, panelId: UUID) throws -> String {
         let candidate: String
         if let requested {
             candidate = requested
         } else {
-            let agent = snapshot.kind.rawValue
-            let suffix = String(snapshot.sessionId.prefix(8)).lowercased()
-            candidate = suffix.isEmpty ? agent : "\(agent)-\(suffix)"
+            candidate = "cmux-\(shortID(workspaceId))-\(shortID(panelId))"
         }
         let sanitized = sanitizeSessionName(candidate)
         guard sanitized == candidate, isValidSessionName(sanitized) else {
@@ -308,7 +238,7 @@ struct RemoteHandoffRunner: Sendable {
     }
 
     /// tmux session names may not contain `.` or `:`. We additionally reject
-    /// empty names and whitespace so the printed `ssh`/`tmux` line stays safe.
+    /// empty names and whitespace so printed shell lines stay safe/readable.
     static func isValidSessionName(_ name: String) -> Bool {
         guard !name.isEmpty else { return false }
         if name.contains(".") || name.contains(":") { return false }
@@ -321,5 +251,27 @@ struct RemoteHandoffRunner: Sendable {
         String(name.unicodeScalars.filter { scalar in
             scalar != "." && scalar != ":" && !CharacterSet.whitespaces.contains(scalar)
         })
+    }
+
+    static func resolveWorkingDirectory(requested: String?, homeDirectory: String) -> String {
+        let requested = requested?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let requested, !requested.isEmpty {
+            return requested
+        }
+        let home = homeDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        return home.isEmpty ? FileManager.default.homeDirectoryForCurrentUser.path : home
+    }
+
+    static func shellQuoted(_ value: String) -> String {
+        let safeCharacters = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_@%+=:,./-")
+        if !value.isEmpty,
+           value.unicodeScalars.allSatisfy({ safeCharacters.contains($0) }) {
+            return value
+        }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private static func shortID(_ uuid: UUID) -> String {
+        String(uuid.uuidString.replacingOccurrences(of: "-", with: "").prefix(8)).lowercased()
     }
 }

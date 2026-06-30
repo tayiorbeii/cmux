@@ -14956,32 +14956,29 @@ struct CMUXCLI {
                                 [--surface <id|ref|index>] [--window <id|ref|index>]
                                 [--no-copy] [--json]
 
-            Detect the coding agent running in a pane, create a named tmux
-            session rooted at that conversation's working directory, resume (or
-            fork) the conversation inside it, and print an `ssh -t tmux attach`
-            line so it can be remoted into from another machine.
+            Relaunch the focused or targeted local terminal pane so it runs tmux.
+            The pane is replaced in place with `tmux new-session -A`; no coding-agent
+            detection is required.
 
             Targets the focused pane by default; pass --workspace and --surface
             (or --panel) to target a specific pane.
 
             Flags:
-              --mode fork|handoff   fork = branch a new session (default, leaves
-                                    the original untouched); handoff = resume in
-                                    place
-              --name <session>      tmux session name (default: <agent>-<session-id>)
-              --host <ssh-host>     Host printed in the ssh attach line
-                                    (default: <host> placeholder)
+              --mode fork|handoff   Accepted for compatibility; no effect in the
+                                    local tmux relaunch flow
+              --name <session>      tmux session name (default: cmux-<workspace>-<surface>)
+              --host <ssh-host>     Also print/copy an explicit ssh attach line
               --workspace <id|ref|index> Target workspace (default: focused)
               --surface <id|ref|index>   Target pane (default: focused)
               --panel <id|ref|index>     Alias for --surface
               --window <id|ref|index>    Target window (default: caller/current)
-              --no-copy             Do not copy the ssh line to the clipboard
+              --no-copy             Do not copy the ssh attach line when --host is set
               --json                Emit machine-readable JSON
 
             Example:
               cmux handoff
-              cmux handoff --mode handoff --host desktop.local
-              cmux handoff --name myagent --workspace workspace:1 --surface surface:2
+              cmux handoff --host desktop.local
+              cmux handoff --name devbox --workspace workspace:1 --surface surface:2
             """
         case "list-workspaces":
             return """
@@ -16627,9 +16624,9 @@ struct CMUXCLI {
 
         // The CLI is a socket client (compiled into both the `cmux` app target and
         // the standalone `cmux-cli` target, which cannot link the app's `Sources/`).
-        // All handoff logic lives app-side behind the `remote-handoff.run` socket
-        // method (shared `RemoteHandoffRunner` action); this verb only resolves the
-        // target pane + flags and prints the result. See plans-remote-handoff.md.
+        // All handoff logic lives app-side behind the compatibility
+        // `remote-handoff.run` socket method; this verb only resolves the target
+        // pane + flags and prints the result. See plans-remote-handoff.md.
         let modeValue = (modeArg ?? "fork").lowercased()
         guard modeValue.isEmpty || modeValue == "fork" || modeValue == "handoff" || modeValue == "resume" else {
             throw CLIError(message: "handoff: invalid --mode '\(modeValue)' (expected fork|handoff)")
@@ -16699,13 +16696,13 @@ struct CMUXCLI {
         let sshCommand = (payload["ssh_command"] as? String) ?? ""
 
         if !sessionName.isEmpty {
-            print(String(localized: "remote-handoff.cli.created", defaultValue: "Created tmux session \"\(sessionName)\"."))
+            print(String(localized: "remote-handoff.cli.created", defaultValue: "Relaunched pane in tmux session \"\(sessionName)\"."))
         }
         if !sshCommand.isEmpty {
             print(sshCommand)
             if !noCopy {
                 copyToPasteboard(sshCommand)
-                print(String(localized: "remote-handoff.cli.copied", defaultValue: "(ssh line copied to clipboard)"))
+                print(String(localized: "remote-handoff.cli.copied", defaultValue: "(ssh attach line copied to clipboard)"))
             }
         }
     }

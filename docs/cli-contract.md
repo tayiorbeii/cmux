@@ -140,7 +140,7 @@ Environment:
 | `send-panel` | Send text to a panel/surface. |
 | `send-key-panel` | Send one key to a panel/surface. |
 | `notify` | Send a notification to a workspace/surface. |
-| `handoff` | Detect a coding agent, create a named tmux session at its working directory, fork or resume the conversation, and print an `ssh -t tmux attach` line. Supports `--mode fork|handoff`, `--name`, `--host`, `--workspace`, `--surface`/`--panel`, `--window`, `--no-copy`, `--json`. |
+| `handoff` | Relaunch the focused or targeted local terminal pane in tmux (`tmux new-session -A`) without requiring coding-agent detection. Supports `--mode fork|handoff` as a compatibility no-op, `--name`, explicit optional `--host` SSH attach output, `--workspace`, `--surface`/`--panel`, `--window`, `--no-copy`, `--json`. |
 | `list-notifications` | List queued notifications, including `created_at` and `tab_title`. |
 | `dismiss-notification` | Remove one notification, or remove already-read notifications with `--all-read`. |
 | `mark-notification-read` | Mark one notification, a workspace/surface scope, or all notifications read. |
